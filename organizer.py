@@ -10,7 +10,7 @@ class Organizer():
     This class is used to organize the whole process of federated learning.
     '''
 
-    def __init__(self, model):
+    def __init__(self):
         '''
         Initialize the organizer with random seed, data reader, target model.
         :param seed: random seed
@@ -19,9 +19,8 @@ class Organizer():
         :param bar_recorder: bar recorder
         '''
         self.set_random_seed()
-        self.reader = DataReader(data_set=CIFAR10)
-        print(f'model: {model}')
-        self.target = TargetModel(self.reader, participant_index=0, model=model)
+        self.reader = DataReader(data_set=DATASET)
+        self.target = TargetModel(self.reader, participant_index=0, model=DATASET)
 
     def set_random_seed(self, seed=GLOBAL_SEED):
         '''
@@ -226,7 +225,7 @@ class Organizer():
 
         # Print parameters
         logger.info("AGR is {}".format(DEFAULT_AGR))
-        logger.info("Dataset is {}".format(DEFAULT_SET))
+        logger.info("Dataset is {}".format(DATASET))
         logger.info("Member ratio is {}".format(BLACK_BOX_MEMBER_RATE))
         logger.info("cover factor is {},cover dataset size is {}".format(COVER_FACTOR, RESERVED_SAMPLE))
 
@@ -310,8 +309,9 @@ class Organizer():
                 attacker.train()
             # attacker attack the model within the defined attack epoch
             else:
+                attacker.blackbox_attack_angle(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
                 # attacker.blackbox_attack_unit(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
-                attacker.blackbox_attack_origin(cover_factor=COVER_FACTOR)
+                # attacker.blackbox_attack_origin(cover_factor=COVER_FACTOR)
 
             # record the aggregator accepted participant's gradient
             if DEFAULT_AGR is FANG:

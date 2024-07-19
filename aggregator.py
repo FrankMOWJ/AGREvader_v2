@@ -85,7 +85,7 @@ class RobustMechanism:
 
     def __init__(self, robust_mechanism):
         self.type = robust_mechanism
-        if robust_mechanism is None:
+        if robust_mechanism == NONE:
             self.function = self.naive_average
         elif robust_mechanism == MEDIAN:
             self.function = self.median
@@ -158,4 +158,7 @@ class RobustMechanism:
         :return: The average of the gradients after adding the malicious gradient
         """
         gradients = torch.vstack(gradients)
-        return self.function(gradients, malicious_user)
+        if self.function == self.naive_average:
+            return self.function(gradients)
+        else:
+            return self.function(gradients, malicious_user)

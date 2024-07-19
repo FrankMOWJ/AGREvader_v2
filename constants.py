@@ -8,10 +8,10 @@ TIME_STAMP = now.strftime("%Y_%m_%d_%H") #Time stamp for logging
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") #Device for training, you can use cpu or gpu
 
 # General hyper parameters for training
-MAX_EPOCH = 1000 #Maximum number of epochs
+MAX_EPOCH = 1000 #Maximum number of epochs # 1000
 TRAIN_EPOCH = 30 #Number of epochs for training
 BATCH_SIZE = 64 #Batch size for training
-RESERVED_SAMPLE = 300 #Number of sample for covering attack
+RESERVED_SAMPLE = 500 #Number of sample for covering attack # origin 300
 INIT_MODE = PYTORCH_INIT # Initialisation mode
 BATCH_TRAINING = True #Batch training or not
 
@@ -27,6 +27,10 @@ CIFAR10_PATH = "~/.torch/"
 LABEL_COL = 0 #Label column
 LABEL_SIZE = 30 #Number of classes
 TRAIN_TEST_RATIO = (0.5, 0.5) #Ratio of training and testing data
+
+DATASET = LOCATION30
+# Attack method
+ATTACK = 'angle'
 
 # Robust AGR
 MEDIAN = "Median" #Robust AGR -Median

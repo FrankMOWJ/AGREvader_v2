@@ -132,7 +132,7 @@ class TargetModel:
     The model to attack against, the target for attacking
     """
 
-    def __init__(self, data_reader: DataReader, participant_index=0, model=CIFAR10):
+    def __init__(self, data_reader: DataReader, participant_index=0, model=LOCATION30):
         # initialize the model
         if model == LOCATION30:
             self.model = ModelLocation30()
@@ -382,6 +382,8 @@ class BlackBoxMalicious(FederatedModel):
         for i in self.attack_samples:
             if i in reader.train_set:
                 self.member_count += 1
+        print(f'attack sample: {len(self.attack_samples)}')
+        print(f'member count: {self.member_count}')
 
 
     def shuffle_label(self, ground_truth: torch.Tensor):
@@ -741,7 +743,7 @@ class BlackBoxMalicious(FederatedModel):
                 true_non_member += 1
             else:
                 false_non_member += 1
-
+        print(f'ground true len: {sum(ground_truth)}')
         return true_member, false_member, true_non_member, false_non_member
 
     def evaluate_member_accuracy(self):

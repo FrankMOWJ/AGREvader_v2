@@ -34,18 +34,24 @@ class DataReader:
             ])
             
             # Load the CIFAR-10 dataset
-            cifar10_dataset_train = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
-            cifar10_dataset_test = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+            cifar10_dataset_train = datasets.CIFAR10(root=CIFAR10_PATH, train=True, download=True, transform=transform)
+            cifar10_dataset_test = datasets.CIFAR10(root=CIFAR10_PATH, train=False, download=True, transform=transform)
             
             # Convert the dataset into tensors for data and labels
-            self.data = torch.stack([cifar10_dataset_train[i][0] for i in range(len(cifar10_dataset_train))])
-            self.labels = torch.tensor([cifar10_dataset_train[i][1] for i in range(len(cifar10_dataset_train))])
-
-            self.data_test = torch.stack([cifar10_dataset_test[i][0] for i in range(len(cifar10_dataset_test))])
-            self.label_test = torch.stack([cifar10_dataset_test[i][0] for i in range(len(cifar10_dataset_test))])
-
-            self.data_test = self.data_test.to(DEVICE)
-            self.label_test = self.label_test.to(DEVICE)
+            overall_data = []
+            overall_label = []
+            # 把test放在前面
+            for i in range(len(cifar10_dataset_test)):
+                overall_data.append(cifar10_dataset_test[i][0])
+                overall_label.append(cifar10_dataset_test[i][1])
+            for i in range(len(cifar10_dataset_train)):
+                overall_data.append(cifar10_dataset_train[i][0])
+                overall_label.append(cifar10_dataset_train[i][1])
+            
+            self.data = torch.stack(overall_data)
+            self.labels = torch.tensor(overall_label)
+            
+            print(f'overall data shape: {self.data.shape}\noverall label shape: {self.labels.shape}')
 
 
         self.data = self.data.to(DEVICE)
@@ -61,14 +67,6 @@ class DataReader:
         self.train_set = None
         self.test_set = None
         overall_size = self.labels.size(0)
-        
-        if data_set == CIFAR10:
-            test_overall_size = self.label_test.size(0)
-            test_overall_size -= test_overall_size % batch_size
-            test_rand_perm = torch.randperm(self.label_test.size(0)).to(DEVICE)
-            test_rand_perm = test_rand_perm[:test_overall_size].to(DEVICE)
-            self.test_batch_indices = test_rand_perm.reshape((-1, batch_size)).to(DEVICE)
-
 
         # divide data samples into batches, drop the last bit of data samples to make sure each batch is full sized
         overall_size -= reserved
@@ -76,8 +74,7 @@ class DataReader:
         # 生成一个长度为labels.size(0),范围为[0, label.size(0)]的无重复且打乱的序列
         rand_perm = torch.randperm(self.labels.size(0)).to(DEVICE)
         self.reserve_set = rand_perm[overall_size:]
-        print("cover dataset size is {}".format(reserved))
-        print(self.reserve_set.shape)
+        print(f'cover dataset shape: {self.reserve_set.shape}')
         rand_perm = rand_perm[:overall_size].to(DEVICE)
         self.batch_indices = rand_perm.reshape((-1, batch_size)).to(DEVICE)
         self.train_test_split()
@@ -105,8 +102,9 @@ class DataReader:
                 self.train_set = rand_perm[:train_count].to(DEVICE)
                 self.test_set = rand_perm[train_count:].to(DEVICE)
         elif self.data_set == CIFAR10:
-            self.train_set = self.batch_indices.to(DEVICE)
-            self.test_set = self.test_batch_indices.to(DEVICE)
+            test_count = round(self.batch_indices.size(0) / 6.0)
+            self.test_set = self.batch_indices[:test_count].to(DEVICE)
+            self.train_set = self.batch_indices[test_count:].to(DEVICE)
 
     def get_train_set(self, participant_index=0):
         """
@@ -153,4 +151,5 @@ class DataReader:
         non_member_indices = test_flatten[torch.randperm((len(test_flatten)))[:non_member_count]].to(DEVICE)
         result = torch.cat([member_indices, non_member_indices]).to(DEVICE)
         result = result[torch.randperm(len(result))].to(DEVICE)
+        # print(f'attack sample shape: {result.shape}\nmember sample shape: {member_indices.shape}')
         return result, member_indices, non_member_indices
