@@ -226,7 +226,7 @@ class Organizer():
         # Print parameters
         logger.info("AGR is {}".format(DEFAULT_AGR))
         logger.info("Dataset is {}".format(DATASET))
-        logger.info("Number of User is ".format(NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY))
+        logger.info("Number of User is {}".format(NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY))
         logger.info("Member ratio is {}".format(BLACK_BOX_MEMBER_RATE))
         logger.info("cover factor is {},cover dataset size is {}".format(COVER_FACTOR, RESERVED_SAMPLE))
 
@@ -310,9 +310,14 @@ class Organizer():
                 attacker.train()
             # attacker attack the model within the defined attack epoch
             else:
-                attacker.blackbox_attack_angle(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
-                # attacker.blackbox_attack_unit(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
-                # attacker.blackbox_attack_origin(cover_factor=COVER_FACTOR)
+                if ATTACK == 'anlge':
+                    attacker.blackbox_attack_angle(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
+                elif ATTACK == 'unitnonm':
+                    attacker.blackbox_attack_unit(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
+                elif ATTACK == 'norm':
+                    attacker.blackbox_attack(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
+                else:
+                    attacker.blackbox_attack_origin(cover_factor=COVER_FACTOR)
 
             # record the aggregator accepted participant's gradient
             if DEFAULT_AGR is FANG:

@@ -153,6 +153,7 @@ class TargetModel:
 
         # initialize the loss function and optimizer
         self.loss_function = torch.nn.CrossEntropyLoss().to(DEVICE)
+        # learning rate keeps default value 0.001
         self.optimizer = torch.optim.Adam(self.model.parameters())
 
         # Initialize recorder

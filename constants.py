@@ -32,13 +32,13 @@ CIFAR10_PATH = "~/.torch/"
 
 DATASET = CIFAR10
 # Attack method
-ATTACK = 'angle'
+ATTACK = 'norm'
 
 # Robust AGR
 MEDIAN = "Median" #Robust AGR -Median
 FANG = "Fang" #Robust AGR -Fang
 NONE = "None" #Average
-DEFAULT_AGR = FANG #Set default Robust AGR
+DEFAULT_AGR = MEDIAN #Set default Robust AGR
 
 # Federated learning parameters
 NUMBER_OF_PARTICIPANTS = 9 #Number of participants
