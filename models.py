@@ -26,6 +26,8 @@ def make_logger(name, save_dir, save_filename):
     logger.addHandler(ch)
 
     if save_dir:
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
         fh = logging.FileHandler(os.path.join(save_dir, save_filename + ".txt"), mode='w')
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(formatter)
@@ -132,7 +134,7 @@ class TargetModel:
     The model to attack against, the target for attacking
     """
 
-    def __init__(self, data_reader: DataReader, participant_index=0, model=LOCATION30):
+    def __init__(self, data_reader: DataReader, participant_index=0, model=CIFAR10):
         # initialize the model
         if model == LOCATION30:
             self.model = ModelLocation30()

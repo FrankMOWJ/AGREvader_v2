@@ -226,6 +226,7 @@ class Organizer():
         # Print parameters
         logger.info("AGR is {}".format(DEFAULT_AGR))
         logger.info("Dataset is {}".format(DATASET))
+        logger.info("Number of User is ".format(NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY))
         logger.info("Member ratio is {}".format(BLACK_BOX_MEMBER_RATE))
         logger.info("cover factor is {},cover dataset size is {}".format(COVER_FACTOR, RESERVED_SAMPLE))
 

@@ -102,7 +102,7 @@ class DataReader:
                 self.train_set = rand_perm[:train_count].to(DEVICE)
                 self.test_set = rand_perm[train_count:].to(DEVICE)
         elif self.data_set == CIFAR10:
-            test_count = round(self.batch_indices.size(0) / 6.0)
+            test_count = round(self.batch_indices.size(0) / 6.0) # train: 50000, test: 10000
             self.test_set = self.batch_indices[:test_count].to(DEVICE)
             self.train_set = self.batch_indices[test_count:].to(DEVICE)
 

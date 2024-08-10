@@ -6,9 +6,10 @@ PYTORCH_INIT = "PyTorch" #initialisation for pytorch`
 now = datetime.now() #Current date and time
 TIME_STAMP = now.strftime("%Y_%m_%d_%H") #Time stamp for logging
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") #Device for training, you can use cpu or gpu
+print(f'DEVICE: {DEVICE}')
 
 # General hyper parameters for training
-MAX_EPOCH = 1000 #Maximum number of epochs # 1000
+MAX_EPOCH = 150 #Maximum number of epochs # 1000
 TRAIN_EPOCH = 30 #Number of epochs for training
 BATCH_SIZE = 64 #Batch size for training
 RESERVED_SAMPLE = 500 #Number of sample for covering attack # origin 300
@@ -19,16 +20,17 @@ BATCH_TRAINING = True #Batch training or not
 # You can explore more datasets here
 LOCATION30 = "Location30" #Name of the dataset
 LOCATION30_PATH = "./datasets-master/bangkok" #Path to the dataset
+TRAIN_TEST_RATIO = (0.5, 0.5) #Ratio of training and testing data for Location30
+LABEL_COL = 0 #Label column
+LABEL_SIZE = 30 #Number of classes
 DEFAULT_SET = LOCATION30 #Default dataset
+
 
 CIFAR10 = "CIFAR10" 
 CIFAR10_PATH = "~/.torch/"
 
-LABEL_COL = 0 #Label column
-LABEL_SIZE = 30 #Number of classes
-TRAIN_TEST_RATIO = (0.5, 0.5) #Ratio of training and testing data
 
-DATASET = LOCATION30
+DATASET = CIFAR10
 # Attack method
 ATTACK = 'angle'
 
@@ -39,7 +41,7 @@ NONE = "None" #Average
 DEFAULT_AGR = FANG #Set default Robust AGR
 
 # Federated learning parameters
-NUMBER_OF_PARTICIPANTS = 5 #Number of participants
+NUMBER_OF_PARTICIPANTS = 9 #Number of participants
 PARAMETER_EXCHANGE_RATE = 1 #Parameter exchange rate
 PARAMETER_SAMPLE_THRESHOLD = 1 #Parameter sample threshold
 GRADIENT_EXCHANGE_RATE = 1 #Gradient exchange rate
