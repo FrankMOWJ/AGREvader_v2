@@ -4,7 +4,101 @@ import pandas as pd
 import numpy as np
 import os, random
 from data_reader import DataReader
+import argparse
 
+
+def get_parser(**parser_kwargs):
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ("yes", "true", "t", "y", "1"):
+            return True
+        elif v.lower() in ("no", "false", "f", "n", "0"):
+            return False
+        else:
+            raise argparse.ArgumentTypeError("Boolean value expected.")
+
+    parser = argparse.ArgumentParser(**parser_kwargs)
+    
+    parser.add_argument(
+        "-a",
+        "--attack",
+        help="attacker attack type",
+        choices=['norm', 'unitnorm', 'angle'],
+        default='angle'
+    )
+
+    parser.add_argument(
+        "-d",
+        "--defense",
+        help="normal users defense type",
+        choices=['Fang', 'Median', 'Trim', 'None'],
+        default='median'
+    )
+    
+    parser.add_argument(
+        "-dt",
+        "--dataset",
+        help="dataset",
+        required=True,
+        default='CIFAR10'
+    )
+
+    parser.add_argument(
+        "-C",
+        help="ratio of clients to participate",
+        required=True,
+        type=float,
+        default=1.0
+    )
+
+    parser.add_argument(
+        "--delay",
+        help="max delay",
+        required=True,
+        type=int,
+        default=0
+    )
+
+    # parser.add_argument(
+    #     "-r",
+    #     "--victim_ratio",
+    #     help="customized victim parameter weight when combine victim and cover params, \
+    #         used different ratio from the config file",
+    #     default=None,
+    #     type=float
+    # )
+    
+    parser.add_argument(
+        "--device",
+        help="device index",
+        default=0
+    )
+    
+    parser.add_argument(
+        "--dist",
+        help="iid or non-iid setting",
+        default='iid',
+        type=str
+    )
+    
+    parser.add_argument(
+        "--cover_times",
+        help="Number of times to try cover set",
+        default=None
+    )
+    
+    # parser.add_argument(
+    #     "-o",
+    #     "--output_dir",
+    #     help="log output direction",
+    #     default='./results-agrevader',
+    #     type=str
+    # )
+
+    args = parser.parse_args()
+    return args
+        
 class Organizer():
     '''
     This class is used to organize the whole process of federated learning.
@@ -18,8 +112,11 @@ class Organizer():
         :param target: target model
         :param bar_recorder: bar recorder
         '''
+        # parser
+        self.args = get_parser()
+        DATA_DISTRIBUTION = self.args.dist
         self.set_random_seed()
-        self.reader = DataReader(data_set=DATASET)
+        self.reader = DataReader(data_set=DATASET, data_distribution=DATA_DISTRIBUTION)
         self.target = TargetModel(self.reader, participant_index=0, model=DATASET)
 
     def set_random_seed(self, seed=GLOBAL_SEED):
@@ -212,6 +309,12 @@ class Organizer():
         :param record_process: whether to record the process
         :param record_model: whether to record the model
         '''
+        DEFAULT_AGR = self.args.defense
+        ATTACK = self.args.attack
+        C = self.args.C 
+        T_DELAY = self.args.delay
+        DATASET = self.args.dataset
+        TRY_TIMES = self.args.cover_times
         # Initialize data frame for recording purpose
         acc_recorder = pd.DataFrame(columns=["epoch", "participant", "test_loss", "test_accuracy", "train_accuracy"])
         attack_recorder = pd.DataFrame(columns=["epoch", \
@@ -222,11 +325,16 @@ class Organizer():
 
         # Initialize aggregator with given parameter size
         aggregator = Aggregator(self.target.get_flatten_parameters(), DEFAULT_AGR)
+        attack_times = 0
 
         # Print parameters
         logger.info("AGR is {}".format(DEFAULT_AGR))
+        logger.info("Attack is {}".format(ATTACK))
         logger.info("Dataset is {}".format(DATASET))
         logger.info("Number of User is {}".format(NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY))
+        logger.info("C is {}".format(C))
+        logger.info("Max Delay is {}".format(T_DELAY))
+        logger.info("Try Times is {}".format(TRY_TIMES))
         logger.info("Member ratio is {}".format(BLACK_BOX_MEMBER_RATE))
         logger.info("cover factor is {},cover dataset size is {}".format(COVER_FACTOR, RESERVED_SAMPLE))
 
@@ -255,16 +363,26 @@ class Organizer():
 
         # Initialize attacker
         attacker = BlackBoxMalicious(self.reader, aggregator)
-
+        # global model history
+        global_model_lst = []
         for j in range(MAX_EPOCH):
             # The global model's parameter is shared to each participant before every communication round
-            print(f"Epoch: {j}")
             steal_grad_lst = []
             global_parameters = global_model.get_flatten_parameters()
+            # save global model for delay
+            global_model_lst.append(global_parameters)
             train_acc_collector = []
-            for i in range(NUMBER_OF_PARTICIPANTS):
+            # sample  C * (Num_paritcipant + Num_attacker) to participate in training
+            random_user_id = random.sample([i for i in range(0, NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY)], int(C * (NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY)))
+
+            for i in random_user_id:
+                # idx = (NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1) means choose attacker to participate in training
+                if i == NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1:
+                    continue
+                # generate delay
+                delay_r = max(0, j - random.randint(0, T_DELAY))
                 # The participants collect the global parameters before training
-                participants[i].collect_parameters(global_parameters)
+                participants[i].collect_parameters(global_model_lst[delay_r])
                 # The participants calculate local gradients and share to the aggregator
                 grad = participants[i].share_gradient()
                 # TODO: Attack steal the gradient
@@ -282,9 +400,11 @@ class Organizer():
                                                                                                              test_acc,
                                                                                                              train_loss,
                                                                                                              train_acc))
-
-            # attacker collects parameter and starts to infer
-            attacker.collect_parameters(global_parameters)
+            if NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1 in random_user_id:
+                attack_times += 1
+                attacker_delay_r = max(0, j - random.randint(0, T_DELAY))
+                # attacker collects parameter and starts to infer
+                attacker.collect_parameters(global_model_lst[attacker_delay_r])
             # attacker evaluate the attack result including true member, false member, true non member, false non member
             true_member, false_member, true_non_member, false_non_member = attacker.evaluate_attack_result()
             logger.info(
@@ -304,20 +424,21 @@ class Organizer():
                         true_member + true_non_member + false_member + false_non_member + 1)
                 attack_recall = (true_member + 1) / (true_member + false_non_member + 1)
 
-            # attacker attack
-            # attcker train the model within the defined training epoch
-            if j < TRAIN_EPOCH:
-                attacker.train()
-            # attacker attack the model within the defined attack epoch
-            else:
-                if ATTACK == 'anlge':
-                    attacker.blackbox_attack_angle(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
-                elif ATTACK == 'unitnonm':
-                    attacker.blackbox_attack_unit(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
-                elif ATTACK == 'norm':
-                    attacker.blackbox_attack(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
+            if NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1 in random_user_id:
+                # attacker attack
+                # attcker train the model within the defined training epoch
+                if j < TRAIN_EPOCH:
+                    attacker.train()
+                # attacker attack the model within the defined attack epoch
                 else:
-                    attacker.blackbox_attack_origin(cover_factor=COVER_FACTOR)
+                    if ATTACK == 'anlge':
+                        attacker.blackbox_attack_angle(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, try_times=TRY_TIMES)
+                    elif ATTACK == 'unitnonm':
+                        attacker.blackbox_attack_unit(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
+                    elif ATTACK == 'norm':
+                        attacker.blackbox_attack_norm(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
+                    else:
+                        attacker.blackbox_attack_origin(cover_factor=COVER_FACTOR)
 
             # record the aggregator accepted participant's gradient
             if DEFAULT_AGR is FANG:
@@ -365,23 +486,25 @@ class Organizer():
         logger.info("attack success round {}, total {}".format(attacker_success_round, len(attacker_success_round)))
 
         logger.info(
-            "Best result: \nattack_acc={}\ntarget_model_train_acc={}\ntarget_model_test_acc={}\nmember_pred_acc={}\nnon-member_pred_acc={}\nbest_attack_acc_epoch={}\n" \
+            "Best result: \nattack_acc={}\ntarget_model_train_acc={}\ntarget_model_test_acc={}\nmember_pred_acc={}\nnon-member_pred_acc={}\nbest_attack_acc_epoch={}\nattacker_participate_times={}\n" \
                 .format(best_attack_acc, target_model_train_acc, target_model_test_acc, member_pred_acc, \
-                        non_member_pred_acc, best_attack_acc_epoch))
+                        non_member_pred_acc, best_attack_acc_epoch, attack_times))
 
         # record the model
         if record_model:
             param_recorder["global"] = global_model.get_flatten_parameters().detach().numpy()
             for i in range(NUMBER_OF_PARTICIPANTS):
                 param_recorder["participant{}".format(i)] = participants[i].get_flatten_parameters().detach().numpy()
-            param_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + TIME_STAMP + DEFAULT_SET + "Federated_Models.csv")
+            param_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + TIME_STAMP + DATASET + "Federated_Models.csv")
 
         # record process
         if record_process:
             recorder_suffix = "blackbox"
-            acc_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + TIME_STAMP + DEFAULT_SET + str(DEFAULT_AGR) + \
-                                "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
-                MAX_EPOCH - TRAIN_EPOCH) + recorder_suffix + "optimized_model.csv")
-            attack_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + TIME_STAMP + DEFAULT_SET + str(DEFAULT_AGR) + \
-                                   "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
-                MAX_EPOCH - TRAIN_EPOCH) + recorder_suffix + "optimized_attacker.csv")
+            acc_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + DATASET + str(DEFAULT_AGR) + str(ATTACK)\
+                                + "User" + str(NUMBER_OF_PARTICIPANTS+NUMBER_OF_ADVERSARY) + "C" + str(C) + "Delay" + str(T_DELAY) \
+                                + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
+                                MAX_EPOCH - TRAIN_EPOCH)+ recorder_suffix + "optimized_model" + TIME_STAMP + ".csv")
+            attack_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + DATASET + str(DEFAULT_AGR) + str(ATTACK)\
+                                + "User" + str(NUMBER_OF_PARTICIPANTS+NUMBER_OF_ADVERSARY) + "C" + str(C) + "Delay" + str(T_DELAY) \
+                                + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
+                                MAX_EPOCH - TRAIN_EPOCH)+ recorder_suffix + "optimized_attacker" + TIME_STAMP + ".csv")

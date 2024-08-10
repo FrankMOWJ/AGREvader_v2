@@ -435,7 +435,10 @@ class BlackBoxMalicious(FederatedModel):
         gradient = self.get_flatten_parameters() - cache
         self.load_parameters(cache)
         # !! cover sample
-        cover_samples = self.data_reader.reserve_set #cover samples
+        candidate_cover_samples = self.data_reader.reserve_set #cover samples
+        rand_indices = torch.randperm(candidate_cover_samples.size(0))
+        selected_indices = rand_indices[:320]
+        cover_samples = candidate_cover_samples[selected_indices]
         i = 0
         while i * batch_size < len(cover_samples):
             batch_index = cover_samples[i * batch_size:(i + 1) * batch_size]
@@ -457,7 +460,7 @@ class BlackBoxMalicious(FederatedModel):
 
         return gradient
 
-    def blackbox_attack(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None):
+    def blackbox_attack_norm(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None):
         """
         Optimized shuffle label attack
         :param cover_factor: Cover factor of the gradient of cover samples
@@ -489,7 +492,7 @@ class BlackBoxMalicious(FederatedModel):
             rand_indices = torch.randperm(candidate_cover_samples.size(0))
             selected_indices = rand_indices[:320]
             cover_samples = candidate_cover_samples[selected_indices]
-            assert len(cover_samples) == 320, "cover set size is not 300"
+            assert len(cover_samples) == 320, "cover set size is not 320"
 
             i = 0
             while i * batch_size < len(cover_samples):
@@ -615,7 +618,7 @@ class BlackBoxMalicious(FederatedModel):
                 if cur_max_agrEvader_grad == None:
                     cur_max_agrEvader_grad = gradient
                 elif torch.norm(gradient) > torch.norm(cur_max_agrEvader_grad):
-                    print("find a better gradient!")
+                    # print("find a better gradient!")s
                     cur_max_agrEvader_grad = gradient
 
         # 判断使用新生成的还是使用历史最佳的
@@ -636,7 +639,7 @@ class BlackBoxMalicious(FederatedModel):
 
         return theta_degrees
 
-    def blackbox_attack_angle(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None):
+    def blackbox_attack_angle(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, try_times=5):
         """
         Optimized shuffle label attack
         :param cover_factor: Cover factor of the gradient of cover samples
@@ -665,7 +668,7 @@ class BlackBoxMalicious(FederatedModel):
         cur_max_agrEvader_grad = None
         # 选取其中的300个作为本轮的cover set
         history_max_diff = 0.0
-        for _ in range(5):
+        for _ in range(try_times):
             rand_indices = torch.randperm(candidate_cover_samples.size(0))
             selected_indices = rand_indices[:320]
             cover_samples = candidate_cover_samples[selected_indices]

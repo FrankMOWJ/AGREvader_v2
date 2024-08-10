@@ -8,6 +8,12 @@ TIME_STAMP = now.strftime("%Y_%m_%d_%H") #Time stamp for logging
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") #Device for training, you can use cpu or gpu
 print(f'DEVICE: {DEVICE}')
 
+# delay 
+T_DELAY = 0
+
+# ratio of client to participate in training each round 
+C = 1.0 # 0.5
+
 # General hyper parameters for training
 MAX_EPOCH = 150 #Maximum number of epochs # 1000
 TRAIN_EPOCH = 30 #Number of epochs for training
@@ -32,7 +38,7 @@ CIFAR10_PATH = "~/.torch/"
 
 DATASET = CIFAR10
 # Attack method
-ATTACK = 'norm'
+ATTACK = 'None'
 
 # Robust AGR
 MEDIAN = "Median" #Robust AGR -Median

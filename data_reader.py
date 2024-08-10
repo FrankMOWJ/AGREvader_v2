@@ -6,7 +6,7 @@ class DataReader:
     """
     The class to read data set from the given file
     """
-    def __init__(self, data_set=CIFAR10, label_column=LABEL_COL, batch_size=BATCH_SIZE,
+    def __init__(self, data_set=CIFAR10, data_distribution='iid', label_column=LABEL_COL, batch_size=BATCH_SIZE,
                 reserved=0):
         """
         Load the data from the given data path
