@@ -168,7 +168,20 @@ class TargetModel:
         """
         self.train_set = self.data_reader.get_train_set(self.participant_index).to(DEVICE)
         self.test_set = self.data_reader.get_test_set(self.participant_index).to(DEVICE)
-
+        
+        
+        print('**************************************')
+        print(f'par{self.participant_index}')
+        # 统计trian_set对应下标，中各label的数量
+        labels = {i: 0 for i in range(10)}
+        for batch in self.train_set:
+            for indice in batch:
+                label = self.data_reader.labels[indice] #! self.data_reader.labels[indice]
+                labels[int(label)] += 1
+        for i in range(10):
+            print(f'label {i}: {labels[i]}')
+        print('**************************************')
+        
 
 
     def normal_epoch(self, print_progress=False, by_batch=BATCH_TRAINING):

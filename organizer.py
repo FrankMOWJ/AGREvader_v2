@@ -33,7 +33,7 @@ def get_parser(**parser_kwargs):
         "--defense",
         help="normal users defense type",
         choices=['Fang', 'Median', 'Trim', 'None'],
-        default='median'
+        default='Median'
     )
     
     parser.add_argument(

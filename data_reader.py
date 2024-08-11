@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from constants import *
 from torchvision import datasets, transforms
@@ -16,6 +17,7 @@ class DataReader:
         """
         # load the csv file
         self.data_set = data_set
+        self.num_class = None
         if data_set == LOCATION30:
             path = LOCATION30_PATH
             data_frame = pd.read_csv(path, header=None)
@@ -25,6 +27,7 @@ class DataReader:
             data_frame.drop(label_column, inplace=True, axis=1)
             # extract the data
             self.data = torch.tensor(data_frame.to_numpy(), dtype=torch.float).to(DEVICE)
+            self.num_class = 30
         
         elif data_set == CIFAR10:
             # Define the transformation for the CIFAR-10 data
@@ -51,17 +54,24 @@ class DataReader:
             self.data = torch.stack(overall_data)
             self.labels = torch.tensor(overall_label)
             
+            self.num_class = 10
             print(f'overall data shape: {self.data.shape}\noverall label shape: {self.labels.shape}')
 
 
         self.data = self.data.to(DEVICE)
         self.labels = self.labels.to(DEVICE)
+        
+        # # 打印前50个label -> shuffle过
+        # for i in range(50):
+        #     print(self.labels[i])
 
         # if there is no reserved data samples defined, then set the reserved data samples to 0
         try:
             reserved = RESERVED_SAMPLE
         except NameError:
             reserved = 0
+            
+# TODO 到这里还是一样的
 
         # initialize the training and testing batches indices
         self.train_set = None
@@ -75,13 +85,61 @@ class DataReader:
         rand_perm = torch.randperm(self.labels.size(0)).to(DEVICE)
         self.reserve_set = rand_perm[overall_size:]
         print(f'cover dataset shape: {self.reserve_set.shape}')
-        rand_perm = rand_perm[:overall_size].to(DEVICE)
+        rand_perm = rand_perm[:overall_size].to(DEVICE) #! 除去了coverset的下标
         self.batch_indices = rand_perm.reshape((-1, batch_size)).to(DEVICE)
         self.train_test_split()
 
         print("Data set "+data_set+
-              " has been loaded, overall {} records, batch size = {}, testing batches: {}, training batches: {}"
-              .format(overall_size, batch_size, self.test_set.size(0), self.train_set.size(0)))
+            " has been loaded, overall {} records, batch size = {}, testing batches: {}, training batches: {}"
+            .format(overall_size, batch_size, self.test_set.size(0), self.train_set.size(0)))
+            
+        if data_distribution == 'non-iid':
+            self.train_set = self.make_noniid_dataset(self.num_class, num_users=NUMBER_OF_PARTICIPANTS, batch_size=BATCH_SIZE, bias=0.5)
+            
+    def make_noniid_dataset(self, num_class, num_users=1, batch_size=64, bias=0.5):
+        
+        bias_weight = bias
+        other_group_size = (1-bias_weight) / (num_class-1)
+        worker_per_group = num_users / (num_class) # num_worker=nuser, num_ouputs=nclass
+        
+        each_worker_data = [[] for _ in range(num_users)]
+        each_worker_label = [[] for _ in range(num_users)] 
+        print(len(each_worker_data))
+        
+        noniid_train_set = [[] for _ in range(num_users)]
+
+        for batch_indices in self.train_set:
+            for sample in batch_indices:
+                x, y = self.data[sample], self.labels[sample]
+                upper_bound = (y.item()) * (1-bias_weight) / (num_class-1) + bias_weight # default=0.5
+                lower_bound = (y.item()) * (1-bias_weight) / (num_class-1)
+                rd = np.random.random_sample()
+                if rd > upper_bound:
+                    worker_group = int(np.floor((rd - upper_bound) / other_group_size)+y.item()+1)
+                elif rd < lower_bound:
+                    worker_group = int(np.floor(rd / other_group_size))
+                else:
+                    worker_group = y.item()
+
+                # assign a data point to a worker
+                rd = np.random.random_sample()
+                selected_worker = int(worker_group*worker_per_group + int(np.floor(rd*worker_per_group)))
+                if (bias_weight == 0): selected_worker = np.random.randint(num_users)
+                
+                noniid_train_set[selected_worker].append(sample)   
+                
+        # 将noniid_train_set展开
+        noniid_train_set = [sample for sublist in noniid_train_set for sample in sublist]
+        # 将noniid_train_set转换为self.train_set的形状
+        noniid_train_set = torch.tensor(noniid_train_set).reshape(self.train_set.shape).to(DEVICE)
+    
+        
+        # print('######################################################################')
+        # print(f'noniid_train_set shape: {noniid_train_set.shape}')
+        # print('######################################################################')
+        
+        return noniid_train_set
+            
 
 
     def train_test_split(self, ratio=TRAIN_TEST_RATIO, batch_training=BATCH_TRAINING):
