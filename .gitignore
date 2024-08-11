@@ -4,3 +4,4 @@ data/
 new_output/
 output/
 test.py
+CIFAR10_output

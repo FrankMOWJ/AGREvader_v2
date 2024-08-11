@@ -16,7 +16,7 @@ C = 1.0 # 0.5
 
 # General hyper parameters for training
 MAX_EPOCH = 150 #Maximum number of epochs # 1000
-TRAIN_EPOCH = 30 #Number of epochs for training
+TRAIN_EPOCH = 5 #Number of epochs for training
 BATCH_SIZE = 64 #Batch size for training
 RESERVED_SAMPLE = 500 #Number of sample for covering attack # origin 300
 INIT_MODE = PYTORCH_INIT # Initialisation mode
@@ -65,7 +65,7 @@ MISLEAD_FACTOR = 0.8 # Mislead factor for Mislead part
 
 
 # IO related
-EXPERIMENTAL_DATA_DIRECTORY = "./new_output/"
+EXPERIMENTAL_DATA_DIRECTORY = "./CIFAR10_output/"
 
 
 # Random seed

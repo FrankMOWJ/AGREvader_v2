@@ -467,7 +467,7 @@ class BlackBoxMalicious(FederatedModel):
         :param batch_size: The size of the batch
         :return: The malicious gradient covered by gradient of cover samples for current round
         """
-        assert len(grad_honest) == NUMBER_OF_PARTICIPANTS, "honest gradient have not fully collected!"
+        # assert len(grad_honest) == NUMBER_OF_PARTICIPANTS, "honest gradient have not fully collected!"
         # 获取max_honest_diff
         max_honest_diff = 0.0
         for i in range(len(grad_honest)):
@@ -561,7 +561,7 @@ class BlackBoxMalicious(FederatedModel):
         :param batch_size: The size of the batch
         :return: The malicious gradient covered by gradient of cover samples for current round
         """
-        assert len(grad_honest) == NUMBER_OF_PARTICIPANTS, "honest gradient have not fully collected!"
+        # assert len(grad_honest) == NUMBER_OF_PARTICIPANTS, "honest gradient have not fully collected!"
         # 获取max_honest_diff
         max_honest_diff = 0.0
         for i in range(len(grad_honest)):
@@ -646,7 +646,7 @@ class BlackBoxMalicious(FederatedModel):
         :param batch_size: The size of the batch
         :return: The malicious gradient covered by gradient of cover samples for current round
         """
-        assert len(grad_honest) == NUMBER_OF_PARTICIPANTS, "honest gradient have not fully collected!"
+        # assert len(grad_honest) == NUMBER_OF_PARTICIPANTS, "honest gradient have not fully collected!"
         # 获取max_honest_diff
         max_honest_angle_diff = 0.0
         for i in range(len(grad_honest)):
@@ -710,10 +710,12 @@ class BlackBoxMalicious(FederatedModel):
 
         # 判断使用新生成的还是使用历史最佳的
         if cur_max_agrEvader_grad == None:
-            self.aggregator.collect(gradient / torch.norm(gradient), indices)
+            # self.aggregator.collect(gradient / torch.norm(gradient), indices)
+            self.aggregator.collect(gradient, indices)
             return gradient
         else :
-            self.aggregator.collect(cur_max_agrEvader_grad / torch.norm(cur_max_agrEvader_grad), indices)
+            # self.aggregator.collect(cur_max_agrEvader_grad / torch.norm(cur_max_agrEvader_grad), indices)
+            self.aggregator.collect(cur_max_agrEvader_grad, indices)
             return cur_max_agrEvader_grad
 
     def evaluate_attack_result(self):

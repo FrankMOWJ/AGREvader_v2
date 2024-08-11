@@ -24,7 +24,7 @@ def get_parser(**parser_kwargs):
         "-a",
         "--attack",
         help="attacker attack type",
-        choices=['norm', 'unitnorm', 'angle'],
+        choices=['norm', 'unit', 'angle'],
         default='angle'
     )
 
@@ -41,6 +41,7 @@ def get_parser(**parser_kwargs):
         "--dataset",
         help="dataset",
         required=True,
+        choices=['CIFAR10', 'Location30', 'Purchase100'],
         default='CIFAR10'
     )
 
@@ -78,6 +79,7 @@ def get_parser(**parser_kwargs):
     parser.add_argument(
         "--dist",
         help="iid or non-iid setting",
+        choices=['iid', 'non-iid'],
         default='iid',
         type=str
     )
@@ -114,9 +116,9 @@ class Organizer():
         '''
         # parser
         self.args = get_parser()
-        DATA_DISTRIBUTION = self.args.dist
+        self.DATA_DISTRIBUTION = self.args.dist
         self.set_random_seed()
-        self.reader = DataReader(data_set=DATASET, data_distribution=DATA_DISTRIBUTION)
+        self.reader = DataReader(data_set=DATASET, data_distribution=self.DATA_DISTRIBUTION)
         self.target = TargetModel(self.reader, participant_index=0, model=DATASET)
 
     def set_random_seed(self, seed=GLOBAL_SEED):
@@ -425,19 +427,24 @@ class Organizer():
                 attack_recall = (true_member + 1) / (true_member + false_non_member + 1)
 
             if NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1 in random_user_id:
+                print(f'Attack: {ATTACK}')
                 # attacker attack
                 # attcker train the model within the defined training epoch
                 if j < TRAIN_EPOCH:
                     attacker.train()
                 # attacker attack the model within the defined attack epoch
                 else:
-                    if ATTACK == 'anlge':
+                    if ATTACK == 'angle':
+                        print('angle attack')
                         attacker.blackbox_attack_angle(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, try_times=TRY_TIMES)
-                    elif ATTACK == 'unitnonm':
+                    elif ATTACK == 'unit':
+                        print('unitnorm attack')
                         attacker.blackbox_attack_unit(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
                     elif ATTACK == 'norm':
+                        print('norm attack')
                         attacker.blackbox_attack_norm(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
                     else:
+                        print('Origin attack')
                         attacker.blackbox_attack_origin(cover_factor=COVER_FACTOR)
 
             # record the aggregator accepted participant's gradient
@@ -502,9 +509,9 @@ class Organizer():
             recorder_suffix = "blackbox"
             acc_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + DATASET + str(DEFAULT_AGR) + str(ATTACK)\
                                 + "User" + str(NUMBER_OF_PARTICIPANTS+NUMBER_OF_ADVERSARY) + "C" + str(C) + "Delay" + str(T_DELAY) \
-                                + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
+                                + str(DATA_DISTRIBUTION) + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
                                 MAX_EPOCH - TRAIN_EPOCH)+ recorder_suffix + "optimized_model" + TIME_STAMP + ".csv")
             attack_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + DATASET + str(DEFAULT_AGR) + str(ATTACK)\
                                 + "User" + str(NUMBER_OF_PARTICIPANTS+NUMBER_OF_ADVERSARY) + "C" + str(C) + "Delay" + str(T_DELAY) \
-                                + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
+                                + str(DATA_DISTRIBUTION) + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
                                 MAX_EPOCH - TRAIN_EPOCH)+ recorder_suffix + "optimized_attacker" + TIME_STAMP + ".csv")
