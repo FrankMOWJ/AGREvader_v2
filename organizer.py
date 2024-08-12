@@ -87,7 +87,8 @@ def get_parser(**parser_kwargs):
     parser.add_argument(
         "--cover_times",
         help="Number of times to try cover set",
-        default=None
+        default=None,
+        type=int
     )
     
     # parser.add_argument(
@@ -427,7 +428,7 @@ class Organizer():
                 attack_recall = (true_member + 1) / (true_member + false_non_member + 1)
 
             if NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1 in random_user_id:
-                print(f'Attack: {ATTACK}')
+                # print(f'Attack: {ATTACK}')
                 # attacker attack
                 # attcker train the model within the defined training epoch
                 if j < TRAIN_EPOCH:
@@ -509,9 +510,9 @@ class Organizer():
             recorder_suffix = "blackbox"
             acc_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + DATASET + str(DEFAULT_AGR) + str(ATTACK)\
                                 + "User" + str(NUMBER_OF_PARTICIPANTS+NUMBER_OF_ADVERSARY) + "C" + str(C) + "Delay" + str(T_DELAY) \
-                                + str(DATA_DISTRIBUTION) + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
+                                + str(self.DATA_DISTRIBUTION) + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
                                 MAX_EPOCH - TRAIN_EPOCH)+ recorder_suffix + "optimized_model" + TIME_STAMP + ".csv")
             attack_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + DATASET + str(DEFAULT_AGR) + str(ATTACK)\
                                 + "User" + str(NUMBER_OF_PARTICIPANTS+NUMBER_OF_ADVERSARY) + "C" + str(C) + "Delay" + str(T_DELAY) \
-                                + str(DATA_DISTRIBUTION) + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
+                                + str(self.DATA_DISTRIBUTION) + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
                                 MAX_EPOCH - TRAIN_EPOCH)+ recorder_suffix + "optimized_attacker" + TIME_STAMP + ".csv")

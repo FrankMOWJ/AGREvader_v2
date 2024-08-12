@@ -723,12 +723,12 @@ class BlackBoxMalicious(FederatedModel):
 
         # 判断使用新生成的还是使用历史最佳的
         if cur_max_agrEvader_grad == None:
-            # self.aggregator.collect(gradient / torch.norm(gradient), indices)
-            self.aggregator.collect(gradient, indices)
+            self.aggregator.collect(gradient / torch.norm(gradient), indices)
+            # self.aggregator.collect(gradient, indices)
             return gradient
         else :
-            # self.aggregator.collect(cur_max_agrEvader_grad / torch.norm(cur_max_agrEvader_grad), indices)
-            self.aggregator.collect(cur_max_agrEvader_grad, indices)
+            self.aggregator.collect(cur_max_agrEvader_grad / torch.norm(cur_max_agrEvader_grad), indices)
+            # self.aggregator.collect(cur_max_agrEvader_grad, indices)
             return cur_max_agrEvader_grad
 
     def evaluate_attack_result(self):

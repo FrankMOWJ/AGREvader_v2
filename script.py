@@ -10,9 +10,9 @@ each_delay = 0
 gpu = [0]
 
 dataset = ['CIFAR10']
-distirbution = ['iid']
+distirbution = ['non-iid', 'iid']
 byz_type = ['Fang', 'Median']
-attack_type = ['unit', 'norm', 'angle']
+attack_type = ['angle']
 C = [0.5, 0.8]
 delay = [5]
 
