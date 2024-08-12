@@ -43,6 +43,8 @@ ATTACK = 'None'
 # Robust AGR
 MEDIAN = "Median" #Robust AGR -Median
 FANG = "Fang" #Robust AGR -Fang
+TRIM = "Trim" #Robust AGR -Trim
+TRIM_BOUND = 1 #Trim bound
 NONE = "None" #Average
 DEFAULT_AGR = MEDIAN #Set default Robust AGR
 

@@ -91,6 +91,8 @@ class RobustMechanism:
             self.function = self.median
         elif robust_mechanism == FANG:
             self.function = self.Fang_defense
+        elif robust_mechanism == TRIM:
+            self.function = self.trimmed_mean
         self.agr_model = None
 
 
@@ -117,8 +119,19 @@ class RobustMechanism:
         :return: The median of the gradients
         """
         return torch.median(input_gradients, 0).values
-
-
+    
+    def trimmed_mean(self, input_gradients: torch.Tensor, malicious_user: int, trim_bound=TRIM_BOUND):
+        """
+        The trimmed mean AGR
+        :param input_gradients: The gradients collected from participants
+        :param malicious_user: The number of malicious participants
+        :param trim_bound: The number of gradients to be trimmed from both ends
+        :return: The trimmed mean of the gradients
+        """
+        input_gradients = torch.sort(input_gradients, dim=0).values
+        print("ok")
+        return input_gradients[trim_bound:-trim_bound].mean(0)
+        
     def Fang_defense(self, input_gradients: torch.Tensor, malicious_user: int):
         """
         The LRR and ERR mechanism proposed in Fang defense
