@@ -1,4 +1,6 @@
+import numpy as np
 from constants import *
+from sklearn.cluster import KMeans
 
 
 class Aggregator:
@@ -93,6 +95,12 @@ class RobustMechanism:
             self.function = self.Fang_defense
         elif robust_mechanism == TRIM:
             self.function = self.trimmed_mean
+        elif robust_mechanism == KRUM:
+            self.function = self.krum
+        elif robust_mechanism == MULTI_KRUM:
+            self.function = self.multi_krum
+        elif robust_mechanism == DEEPSIGHT:
+            self.function = self.deepsight
         self.agr_model = None
 
 
@@ -129,9 +137,84 @@ class RobustMechanism:
         :return: The trimmed mean of the gradients
         """
         input_gradients = torch.sort(input_gradients, dim=0).values
-        # print("ok")
+        print("ok")
         return input_gradients[trim_bound:-trim_bound].mean(0)
         
+    def krum(self, input_gradients: torch.Tensor, malicious_user: int):
+        '''
+        The Krum mechanism
+        :param input_gradients: The gradients collected from participants
+        :param malicious_user: The number of malicious participants
+        :return: The average of the gradients after removing the malicious participants
+        '''       
+        num_participants = input_gradients.shape[0]
+        num_select = num_participants - malicious_user - 2
+        
+        if num_select <= 0:
+            raise ValueError("The number of malicious users is too high, making selection impossible.")
+        
+        # Step 1: Calculate the distances between each pair of gradients
+        distances = torch.zeros((num_participants, num_participants))
+        for i in range(num_participants):
+            for j in range(i + 1, num_participants):
+                distances[i, j] = torch.norm(input_gradients[i] - input_gradients[j])
+                distances[j, i] = distances[i, j]
+
+        # Step 2: For each gradient, calculate the sum of distances to the closest num_select gradients
+        scores = []
+        for i in range(num_participants):
+            sorted_distances, _ = torch.sort(distances[i])
+            score = torch.sum(sorted_distances[:num_select])
+            scores.append(score)
+        
+        # Step 3: Select the gradient with the smallest score
+        selected_index = torch.argmin(torch.tensor(scores))
+        selected_gradient = input_gradients[selected_index]
+        
+        return selected_gradient
+    
+    def multi_krum(self, input_gradients: torch.Tensor, malicious_user: int, num_select=2):
+        '''
+        The Multi-Krum mechanism
+        :param input_gradients: The gradients collected from participants
+        :param malicious_user: The number of malicious participants
+        :param num_select: The number of gradients to be selected
+        :return: The average of the gradients after removing the malicious participants
+        '''       
+        num_participants = input_gradients.shape[0]
+        num_to_select = num_participants - malicious_user - 2
+
+        # Check if num_to_select is valid
+        if num_to_select <= 0:
+            raise ValueError("The number of malicious users is too high, making selection impossible.")
+
+        # Step 1: Calculate the distances between each pair of gradients
+        distances = torch.zeros((num_participants, num_participants))
+        for i in range(num_participants):
+            for j in range(i + 1, num_participants):
+                distances[i, j] = torch.norm(input_gradients[i] - input_gradients[j])
+                distances[j, i] = distances[i, j]
+
+        # Step 2: For each gradient, calculate the sum of distances to the closest num_to_select gradients
+        scores = []
+        for i in range(num_participants):
+            sorted_distances, _ = torch.sort(distances[i])
+            score = torch.sum(sorted_distances[:num_to_select])
+            scores.append(score)
+
+        # Step 3: Select the num_select gradients with the smallest scores
+        selected_indices = torch.argsort(torch.tensor(scores))[:num_select]
+        selected_gradients = input_gradients[selected_indices]
+
+        # Step 4: Return the average of the selected gradients
+        global_gradient = torch.mean(selected_gradients, dim=0)
+        
+        # print("********************************")
+        # print("Selected indices: ", selected_indices)
+        # print("********************************")
+        
+        return global_gradient
+    
     def Fang_defense(self, input_gradients: torch.Tensor, malicious_user: int):
         """
         The LRR and ERR mechanism proposed in Fang defense
@@ -163,6 +246,74 @@ class RobustMechanism:
         RobustMechanism.appearence_list = result
         return torch.mean(input_gradients[result], dim=0)
 
+    def deepsight(self, input_gradients: torch.Tensor, malicious_user: int, num_clusters=2):
+        '''
+        The Deepsight mechanism
+        :param input_gradients: The gradients collected from participants (shape: [num_users, num_features])
+        :param malicious_user: The number of malicious participants
+        :param num_clusters: The number of clusters for KMeans
+        :return: The aggregated global gradient
+        '''
+
+        # Compute DDifs and NEUPs
+        DDifs = torch.norm(torch.mean(input_gradients, dim=0, keepdim=True) - input_gradients, p=2, dim=1)
+        NEUPs = torch.norm(input_gradients, p=2, dim=1)
+
+        # Stack features for clustering
+        features = torch.stack([DDifs, NEUPs], dim=1).cpu().numpy()
+
+        # Perform KMeans clustering
+        kmeans = KMeans(n_clusters=num_clusters, random_state=0).fit(features)
+        labels = kmeans.labels_
+
+        # Identify clusters for benign and poisoned updates
+        benign_cluster = np.argmax(np.bincount(labels))
+        poisoned_cluster = 1 - benign_cluster
+        
+        # Mark the gradients based on clusters
+        benign_gradients = input_gradients[labels == benign_cluster]
+        poisoned_gradients = input_gradients[labels == poisoned_cluster]
+        
+        max_norm = 1.0
+        # Apply ℓ2 norm clipping
+        def clip_gradients(gradients):
+            norms = torch.norm(gradients, p=2, dim=1)
+            clip_factor = max_norm / (norms + 1e-8)  # Avoid division by zero
+            clip_factor = torch.clamp(clip_factor, max=1.0)
+            return gradients * clip_factor.unsqueeze(1)
+
+        benign_gradients = clip_gradients(benign_gradients)
+
+        # Aggregate benign gradients
+        if benign_gradients.size(0) > 0:
+            aggregated_gradient = torch.mean(benign_gradients, dim=0)
+        else:
+            aggregated_gradient = torch.mean(input_gradients, dim=0)  # Fall back to mean of all gradients if no benign updates
+
+        return aggregated_gradient
+    
+    def RFLBAT(self, input_gradients: torch.Tensor, malicious_user: int):
+        '''
+        The RFLBAT mechanism
+        :param input_gradients: The gradients collected from participants
+        :param malicious_user: The number of malicious participants
+        :return: The average of the gradients after removing the malicious participants
+        '''
+        
+        pass
+    
+    def FLAME(self, input_gradients: torch.Tensor, malicious_user: int):
+        '''
+        The FLAME mechanism
+        :param input_gradients: The gradients collected from participants
+        :param malicious_user: The number of malicious participants
+        :return: The average of the gradients after removing the malicious participants
+        '''
+        
+        pass
+    
+        
+        
     def getter(self, gradients, malicious_user=NUMBER_OF_ADVERSARY):
         """
         The getter method applying the robust AGR
@@ -171,7 +322,15 @@ class RobustMechanism:
         :return: The average of the gradients after adding the malicious gradient
         """
         gradients = torch.vstack(gradients)
-        if self.function == self.naive_average:
+        if self.function == self.naive_average or self.function == self.median or self.function == self.Fang_defense:
             return self.function(gradients)
-        else:
+        elif self.function == self.trimmed_mean:
+            return self.function(gradients, malicious_user, TRIM_BOUND)
+        elif self.function == self.krum:
             return self.function(gradients, malicious_user)
+        elif self.function == self.multi_krum:
+            return self.function(gradients, malicious_user, MULTI_KRUM_K)
+        elif self.function == self.deepsight:
+            return self.function(gradients, malicious_user, NUM_CLUSTER)
+        else:
+            raise ValueError("The robust mechanism is not implemented yet.")

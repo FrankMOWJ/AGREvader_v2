@@ -46,12 +46,20 @@ DATASET = CIFAR10
 ATTACK = 'None'
 
 # Robust AGR
+NONE = "None" #Average
 MEDIAN = "Median" #Robust AGR -Median
 FANG = "Fang" #Robust AGR -Fang
+
 TRIM = "Trim" #Robust AGR -Trim
 TRIM_BOUND = 1 #Trim bound
-NONE = "None" #Average
-DEFAULT_AGR = MEDIAN #Set default Robust AGR
+
+KRUM = "Krum" #Robust AGR -Krum
+
+MULTI_KRUM = "Multi-Krum" #Robust AGR -Multi-Krum
+MULTI_KRUM_K = 3 #Number of Krum
+
+DEEPSIGHT = "Deepsight" #Robust AGR -DeepSight
+NUM_CLUSTER = 2
 
 # Federated learning parameters
 NUMBER_OF_PARTICIPANTS = 4 #Number of participants
