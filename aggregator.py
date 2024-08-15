@@ -129,7 +129,7 @@ class RobustMechanism:
         :return: The trimmed mean of the gradients
         """
         input_gradients = torch.sort(input_gradients, dim=0).values
-        print("ok")
+        # print("ok")
         return input_gradients[trim_bound:-trim_bound].mean(0)
         
     def Fang_defense(self, input_gradients: torch.Tensor, malicious_user: int):

@@ -5,7 +5,7 @@ import numpy as np
 import os, random
 from data_reader import DataReader
 import argparse
-
+import math
 
 def get_parser(**parser_kwargs):
     def str2bool(v):
@@ -24,7 +24,7 @@ def get_parser(**parser_kwargs):
         "-a",
         "--attack",
         help="attacker attack type",
-        choices=['norm', 'unit', 'angle'],
+        choices=['norm', 'unit', 'angle', 'cos'],
         default='angle'
     )
 
@@ -61,6 +61,7 @@ def get_parser(**parser_kwargs):
         default=0
     )
 
+
     # parser.add_argument(
     #     "-r",
     #     "--victim_ratio",
@@ -87,17 +88,23 @@ def get_parser(**parser_kwargs):
     parser.add_argument(
         "--cover_times",
         help="Number of times to try cover set",
-        default=None,
+        default=5,
         type=int
     )
     
-    # parser.add_argument(
-    #     "-o",
-    #     "--output_dir",
-    #     help="log output direction",
-    #     default='./results-agrevader',
-    #     type=str
-    # )
+    parser.add_argument(
+        "--max_epoch",
+        help="Number of epoches to run totally",
+        default=150,
+        type=int
+    )
+
+    parser.add_argument(
+        "--train_epoch",
+        help="Number of epoches for attacker to normal training",
+        default=5,
+        type=int
+    )
 
     args = parser.parse_args()
     return args
@@ -118,6 +125,8 @@ class Organizer():
         # parser
         self.args = get_parser()
         self.DATA_DISTRIBUTION = self.args.dist
+        self.MAX_EPOCH = self.args.max_epoch
+        self.TRAIN_EPOCH = self.args.train_epoch
         self.set_random_seed()
         self.reader = DataReader(data_set=DATASET, data_distribution=self.DATA_DISTRIBUTION)
         self.target = TargetModel(self.reader, participant_index=0, model=DATASET)
@@ -231,7 +240,7 @@ class Organizer():
 
             # attacker attack
             # attcker train the model within the defined training epoch
-            if j < TRAIN_EPOCH:
+            if j < self.TRAIN_EPOCH:
                 attacker.train()
             # attacker perform attack after the training epoch
             else:
@@ -318,6 +327,8 @@ class Organizer():
         T_DELAY = self.args.delay
         DATASET = self.args.dataset
         TRY_TIMES = self.args.cover_times
+        ATTACK_ROUND = []
+
         # Initialize data frame for recording purpose
         acc_recorder = pd.DataFrame(columns=["epoch", "participant", "test_loss", "test_accuracy", "train_accuracy"])
         attack_recorder = pd.DataFrame(columns=["epoch", \
@@ -368,7 +379,7 @@ class Organizer():
         attacker = BlackBoxMalicious(self.reader, aggregator)
         # global model history
         global_model_lst = []
-        for j in range(MAX_EPOCH):
+        for j in range(self.MAX_EPOCH):
             # The global model's parameter is shared to each participant before every communication round
             steal_grad_lst = []
             global_parameters = global_model.get_flatten_parameters()
@@ -376,7 +387,7 @@ class Organizer():
             global_model_lst.append(global_parameters)
             train_acc_collector = []
             # sample  C * (Num_paritcipant + Num_attacker) to participate in training
-            random_user_id = random.sample([i for i in range(0, NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY)], int(C * (NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY)))
+            random_user_id = random.sample([i for i in range(0, NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY)], math.ceil(C * (NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY)))
 
             for i in random_user_id:
                 # idx = (NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1) means choose attacker to participate in training
@@ -398,7 +409,8 @@ class Organizer():
                 if record_process:
                     acc_recorder.loc[len(acc_recorder)] = (j + 1, i, test_loss, test_acc, train_acc)
                 logger.info(
-                    "Epoch {} Participant {}, test_loss={:.4f}, test_acc={:.4f}, train_loss={:.4f}, train_acc={:.4f}".format(j + 1, i,
+                    "Epoch {} Participant {} use {}, test_loss={:.4f}, test_acc={:.4f}, train_loss={:.4f}, train_acc={:.4f}".format(j + 1, i,
+                                                                                                             delay_r,
                                                                                                              test_loss,
                                                                                                              test_acc,
                                                                                                              train_loss,
@@ -431,10 +443,11 @@ class Organizer():
                 # print(f'Attack: {ATTACK}')
                 # attacker attack
                 # attcker train the model within the defined training epoch
-                if j < TRAIN_EPOCH:
+                if j < self.TRAIN_EPOCH:
                     attacker.train()
                 # attacker attack the model within the defined attack epoch
                 else:
+                    ATTACK_ROUND.append(j)
                     if ATTACK == 'angle':
                         print('angle attack')
                         attacker.blackbox_attack_angle(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, try_times=TRY_TIMES)
@@ -444,6 +457,9 @@ class Organizer():
                     elif ATTACK == 'norm':
                         print('norm attack')
                         attacker.blackbox_attack_norm(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
+                    elif ATTACK == 'cos':
+                        print('cos attack')
+                        attacker.blackbox_attack_cos(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
                     else:
                         print('Origin attack')
                         attacker.blackbox_attack_origin(cover_factor=COVER_FACTOR)
@@ -498,6 +514,7 @@ class Organizer():
                 .format(best_attack_acc, target_model_train_acc, target_model_test_acc, member_pred_acc, \
                         non_member_pred_acc, best_attack_acc_epoch, attack_times))
 
+        logger.info(f'attack round={ATTACK_ROUND}')
         # record the model
         if record_model:
             param_recorder["global"] = global_model.get_flatten_parameters().detach().numpy()
@@ -510,9 +527,9 @@ class Organizer():
             recorder_suffix = "blackbox"
             acc_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + DATASET + str(DEFAULT_AGR) + str(ATTACK)\
                                 + "User" + str(NUMBER_OF_PARTICIPANTS+NUMBER_OF_ADVERSARY) + "C" + str(C) + "Delay" + str(T_DELAY) \
-                                + str(self.DATA_DISTRIBUTION) + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
-                                MAX_EPOCH - TRAIN_EPOCH)+ recorder_suffix + "optimized_model" + TIME_STAMP + ".csv")
+                                + str(self.DATA_DISTRIBUTION) + "TrainEpoch" + str(self.TRAIN_EPOCH) + "AttackEpoch" + str(
+                                self.MAX_EPOCH - self.TRAIN_EPOCH)+ recorder_suffix + "optimized_model" + TIME_STAMP + ".csv")
             attack_recorder.to_csv(EXPERIMENTAL_DATA_DIRECTORY + DATASET + str(DEFAULT_AGR) + str(ATTACK)\
                                 + "User" + str(NUMBER_OF_PARTICIPANTS+NUMBER_OF_ADVERSARY) + "C" + str(C) + "Delay" + str(T_DELAY) \
-                                + str(self.DATA_DISTRIBUTION) + "TrainEpoch" + str(TRAIN_EPOCH) + "AttackEpoch" + str(
-                                MAX_EPOCH - TRAIN_EPOCH)+ recorder_suffix + "optimized_attacker" + TIME_STAMP + ".csv")
+                                + str(self.DATA_DISTRIBUTION) + "TrainEpoch" + str(self.TRAIN_EPOCH) + "AttackEpoch" + str(
+                                self.MAX_EPOCH - self.TRAIN_EPOCH)+ recorder_suffix + "optimized_attacker" + TIME_STAMP + ".csv")

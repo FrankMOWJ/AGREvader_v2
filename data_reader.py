@@ -55,9 +55,68 @@ class DataReader:
             self.labels = torch.tensor(overall_label)
             
             self.num_class = 10
-            print(f'overall data shape: {self.data.shape}\noverall label shape: {self.labels.shape}')
 
+        elif data_set == MNIST:
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.5,), (0.5,))
+            ])
+            
+            # 加载MNIST数据集
+            mnist_dataset_train = datasets.MNIST(root=MNIST_PATH, train=True, download=True, transform=transform)
+            mnist_dataset_test = datasets.MNIST(root=MNIST_PATH, train=False, download=True, transform=transform)
+            
+            # 将数据集转换为张量
+            overall_data = []
+            overall_label = []
+            # 把test放在前面
+            for i in range(len(mnist_dataset_test)):
+                overall_data.append(mnist_dataset_test[i][0])
+                overall_label.append(mnist_dataset_test[i][1])
+            for i in range(len(mnist_dataset_train)):
+                overall_data.append(mnist_dataset_train[i][0])
+                overall_label.append(mnist_dataset_train[i][1])
+            
+            # 将数据和标签转换为张量
+            self.data = torch.stack(overall_data)
+            self.labels = torch.tensor(overall_label)
+            
+            # MNIST有10个类别
+            self.num_class = 10
+        
+        elif data_set == FASHION_MINST:
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.5,), (0.5,))  # Fashion-MNIST是单通道，所以归一化只需要一个均值和标准差
+            ])
+            
+            # 加载Fashion-MNIST数据集
+            fashion_mnist_dataset_train = datasets.FashionMNIST(root=FASHION_MNIST_PATH, train=True, download=True, transform=transform)
+            fashion_mnist_dataset_test = datasets.FashionMNIST(root=FASHION_MNIST_PATH, train=False, download=True, transform=transform)
+            
+            # 将数据集转换为张量
+            overall_data = []
+            overall_label = []
+            # 把test放在前面
+            for i in range(len(fashion_mnist_dataset_test)):
+                overall_data.append(fashion_mnist_dataset_test[i][0])
+                overall_label.append(fashion_mnist_dataset_test[i][1])
+            for i in range(len(fashion_mnist_dataset_train)):
+                overall_data.append(fashion_mnist_dataset_train[i][0])
+                overall_label.append(fashion_mnist_dataset_train[i][1])
+            
+            # 将数据和标签转换为张量
+            self.data = torch.stack(overall_data)
+            self.labels = torch.tensor(overall_label)
+            
+            # Fashion-MNIST有10个类别
+            self.num_class = 10
+            
 
+        else:
+            raise ValueError(f'no dataset {data_set}')
+
+        print(f'overall data shape: {self.data.shape}\noverall label shape: {self.labels.shape}')
         self.data = self.data.to(DEVICE)
         self.labels = self.labels.to(DEVICE)
         
@@ -159,7 +218,7 @@ class DataReader:
                 rand_perm = torch.randperm(self.data.size(0)).to(DEVICE)
                 self.train_set = rand_perm[:train_count].to(DEVICE)
                 self.test_set = rand_perm[train_count:].to(DEVICE)
-        elif self.data_set == CIFAR10:
+        elif self.data_set == CIFAR10 or self.data_set == MNIST or self.data_set == FASHION_MINST:
             test_count = round(self.batch_indices.size(0) / 6.0) # train: 50000, test: 10000
             self.test_set = self.batch_indices[:test_count].to(DEVICE)
             self.train_set = self.batch_indices[test_count:].to(DEVICE)

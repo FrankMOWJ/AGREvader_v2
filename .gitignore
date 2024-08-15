@@ -5,3 +5,6 @@ new_output/
 output/
 test.py
 CIFAR10_output/
+test/
+results/
+CIFAR10_output_5/

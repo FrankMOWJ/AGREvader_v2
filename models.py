@@ -160,6 +160,8 @@ class TargetModel:
         self.train_loss = -1
         self.train_acc = -1
 
+        # fc layer parameters 
+
 
     def load_data(self):
         """
@@ -252,8 +254,20 @@ class TargetModel:
         """
         out = torch.zeros(0).to(DEVICE)
         with torch.no_grad():
-            for parameter in self.model.parameters():
+            for name, parameter in self.model.named_parameters():
                 out = torch.cat([out, parameter.flatten()]).to(DEVICE)
+        return out
+
+    def get_fc_flatten_parameters(self):
+        """
+        Return the flatten parameter of the last lineat layer
+        :return: the flatten parameters as tensor
+        """
+        out = torch.zeros(0).to(DEVICE)
+        with torch.no_grad():
+            for name, parameter in self.model.named_parameters():
+                if 'fc' in name:
+                    out = torch.cat([out, parameter.flatten()]).to(DEVICE)
         return out
 
     def load_parameters(self, parameters: torch.Tensor):
@@ -651,6 +665,14 @@ class BlackBoxMalicious(FederatedModel):
         theta_degrees = np.degrees(theta.cpu().numpy())
 
         return theta_degrees
+    
+    def get_cos(self, gradA: torch.Tensor, gradB: torch.Tensor):
+        dot_product = torch.dot(gradA, gradB)
+        norm_A = torch.norm(gradA, p=2)
+        norm_B = torch.norm(gradB, p=2)
+        cos_theta = dot_product / (norm_A * norm_B)
+
+        return cos_theta
 
     def blackbox_attack_angle(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, try_times=5):
         """
@@ -674,6 +696,10 @@ class BlackBoxMalicious(FederatedModel):
         loss.backward()
         self.optimizer.step()
         gradient = self.get_flatten_parameters() - cache
+        # # get last lineat layer parameteres
+        # fc_params = self.get_fc_flatten_parameters()
+        # # only poison the fc layer
+        # gradient[:-len(fc_params)] = cache[:-len(fc_params)]
         self.load_parameters(cache)
 
         # 获得cover梯度
@@ -718,6 +744,85 @@ class BlackBoxMalicious(FederatedModel):
                 # elif torch.norm(gradient) > torch.norm(cur_max_agrEvader_grad):
                 elif max_diff > history_max_diff:
                     history_max_diff = max_diff
+                    print("find a better gradient!")
+                    cur_max_agrEvader_grad = gradient
+
+        # 判断使用新生成的还是使用历史最佳的
+        if cur_max_agrEvader_grad == None:
+            self.aggregator.collect(gradient / torch.norm(gradient), indices)
+            # self.aggregator.collect(gradient, indices)
+            return gradient
+        else :
+            self.aggregator.collect(cur_max_agrEvader_grad / torch.norm(cur_max_agrEvader_grad), indices)
+            # self.aggregator.collect(cur_max_agrEvader_grad, indices)
+            return cur_max_agrEvader_grad
+
+    def blackbox_attack_cos(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None):
+        """
+        Optimized shuffle label attack
+        :param cover_factor: Cover factor of the gradient of cover samples
+        :param batch_size: The size of the batch
+        :return: The malicious gradient covered by gradient of cover samples for current round
+        """
+        # assert len(grad_honest) == NUMBER_OF_PARTICIPANTS, "honest gradient have not fully collected!"
+        # 获取max_honest_diff
+        min_honest_cos_diff = 0.0
+        for i in range(len(grad_honest)):
+            for j in range(i+1, len(grad_honest)):
+                theta = self.get_cos(grad_honest[i], grad_honest[j])
+                min_honest_cos_diff = min(min_honest_cos_diff, theta)
+        # 获得poison梯度
+        cache = self.get_flatten_parameters()
+        out = self.model(self.batch_x)
+        loss = self.loss_function(out, self.shuffled_y) # compute loss with shuffled labels
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        gradient = self.get_flatten_parameters() - cache
+        self.load_parameters(cache)
+
+        # 获得cover梯度
+        candidate_cover_samples = self.data_reader.reserve_set # candidate cover set (len: 530)
+        cur_max_agrEvader_grad = None
+        # 选取其中的300个作为本轮的cover set
+        history_min_diff = 999999.0
+        for _ in range(5):
+            rand_indices = torch.randperm(candidate_cover_samples.size(0))
+            selected_indices = rand_indices[:320]
+            cover_samples = candidate_cover_samples[selected_indices]
+            assert len(cover_samples) == 320, "cover set size is not 300"
+
+            i = 0
+            while i * batch_size < len(cover_samples):
+                batch_index = cover_samples[i * batch_size:(i + 1) * batch_size]
+                x, y = self.data_reader.get_batch(batch_index)
+                out = self.model(x)
+                loss = self.loss_function(out, y)
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+                i += 1
+            cover_gradient = self.get_flatten_parameters() - cache
+        
+            # 组合cover和poison
+            if RESERVED_SAMPLE != 0:
+                gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
+            else:
+                gradient, indices = select_by_threshold(gradient,GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD)
+
+            # limitation
+            min_diff = 10.0
+            for k in range(len(grad_honest)):
+                theta = self.get_cos(gradient, grad_honest[k])
+                min_diff = min(theta, min_diff)
+
+            if min_diff >= min_honest_cos_diff:
+                if cur_max_agrEvader_grad == None:
+                    history_min_diff = min_diff
+                    cur_max_agrEvader_grad = gradient
+                # elif torch.norm(gradient) > torch.norm(cur_max_agrEvader_grad):
+                elif min_diff > history_min_diff:
+                    history_min_diff = min_diff
                     print("find a better gradient!")
                     cur_max_agrEvader_grad = gradient
 
@@ -1000,3 +1105,11 @@ class GreyBoxMalicious(FederatedModel):
                 false_non_member += 1
 
         return true_member, false_member, true_non_member, false_non_member
+
+if __name__ == "__main__":
+    model = ResNet20()
+
+    for name, parameter in model.named_parameters():
+        print(name)
+        # out = torch.cat([out, parameter.flatten()]).to(DEVICE)
+
