@@ -40,3 +40,4 @@ for each_dataset in dataset:
                         os.system(suffix)
 
 # python blackbox_optimized.py --dataset CIFAR10 --defense Trim --attack angle --dist non-iid -C 0.8 --delay 5 --max_epoch 200 --train_epoch 30
+# python blackbox_optimized.py --dataset LOCATION30 --defense krum --attack angle --dist iid -C 0.8 --delay 5 --max_epoch 500

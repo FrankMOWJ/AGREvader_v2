@@ -38,7 +38,7 @@ MNIST = 'MNIST'
 MNIST_PATH = "~/.torch/"
 
 FASHION_MINST = 'FASHION_MINST'
-FASHION_MINST_PATH = '~/.torch/'
+FASHION_MNIST_PATH = '~/.torch/'
 
 
 DATASET = CIFAR10
@@ -80,7 +80,7 @@ MISLEAD_FACTOR = 0.8 # Mislead factor for Mislead part
 
 
 # IO related
-EXPERIMENTAL_DATA_DIRECTORY = "./CIFAR10_output_5" # ./CIFAR10_output_syn/"
+EXPERIMENTAL_DATA_DIRECTORY = "./CIFAR10_output_5/" # ./CIFAR10_output_syn/"
 
 
 # Random seed

@@ -134,12 +134,17 @@ class TargetModel:
     The model to attack against, the target for attacking
     """
 
-    def __init__(self, data_reader: DataReader, participant_index=0, model=CIFAR10):
+    def __init__(self, data_reader: DataReader, model, participant_index=0):
         # initialize the model
+        print(f'model: {model}')
         if model == LOCATION30:
             self.model = ModelLocation30()
         elif model == CIFAR10:
             self.model = ResNet20()
+        elif model == MNIST:
+            self.model = ResNet20(input_shape=(1, 28, 28), output_shape=10)
+        elif model == FASHION_MINST:
+            self.model = ResNet20(input_shape=(1, 28, 28), output_shape=10)
         else:
             raise NotImplementedError("Model not supported")
         self.model = self.model.to(DEVICE)
@@ -175,7 +180,7 @@ class TargetModel:
         print('**************************************')
         print(f'par{self.participant_index}')
         # 统计trian_set对应下标，中各label的数量
-        labels = {i: 0 for i in range(10)}
+        labels = {i: 0 for i in range(self.data_reader.num_class)}
         for batch in self.train_set:
             for indice in batch:
                 label = self.data_reader.labels[indice] #! self.data_reader.labels[indice]
@@ -329,14 +334,14 @@ class FederatedModel(TargetModel):
     """
     Representing the class of federated learning members
     """
-    def __init__(self, reader: DataReader, aggregator: Aggregator, participant_index=0):
+    def __init__(self, reader: DataReader, aggregator: Aggregator, model, participant_index=0):
         """
         Initialize the federated model
         :param reader: initialize the data reader
         :param aggregator: initialize the aggregator
         :param participant_index: the index of the participant
         """
-        super(FederatedModel, self).__init__(reader, participant_index)
+        super(FederatedModel, self).__init__(reader, model, participant_index)
         self.aggregator = aggregator
 
     def init_global_model(self):
@@ -396,13 +401,13 @@ class BlackBoxMalicious(FederatedModel):
     Representing the malicious participant trying to perform a black-box membership inference attack
     """
 
-    def __init__(self, reader: DataReader, aggregator: Aggregator):
+    def __init__(self, reader: DataReader, aggregator: Aggregator, model):
         """
         Initialize the black-box malicious participant
         :param reader: Reader to read the data
         :param aggregator: Global aggregator
         """
-        super(BlackBoxMalicious, self).__init__(reader, aggregator)
+        super(BlackBoxMalicious, self).__init__(reader, aggregator, model)
         self.attack_samples, self.members, self.non_members = reader.get_black_box_batch()
         self.member_count = 0
         self.batch_x, self.batch_y = self.data_reader.get_batch(self.attack_samples)

@@ -108,7 +108,31 @@ def get_parser(**parser_kwargs):
 
     args = parser.parse_args()
     return args
-        
+
+def check_convergence(loss_values, threshold=1e-3):
+    """
+    通过计算损失函数的斜率判断模型是否收敛
+
+    参数:
+    loss_values (list): 损失函数值列表
+    threshold (float): 判定收敛的斜率阈值
+
+    返回:
+    bool: 模型是否收敛
+    """
+
+    if len(loss_values) < 2:
+        return False
+
+    # 计算损失函数的变化率 (斜率)
+    slopes = np.diff(loss_values)
+
+    # 计算斜率的绝对值的平均值
+    avg_slope = np.mean(np.abs(slopes))
+
+    # 如果平均斜率低于阈值，则认为模型收敛
+    return avg_slope < threshold
+    
 class Organizer():
     '''
     This class is used to organize the whole process of federated learning.
@@ -128,9 +152,9 @@ class Organizer():
         self.MAX_EPOCH = self.args.max_epoch
         self.TRAIN_EPOCH = self.args.train_epoch
         self.set_random_seed()
-        self.reader = DataReader(data_set=DATASET, data_distribution=self.DATA_DISTRIBUTION)
-        self.target = TargetModel(self.reader, participant_index=0, model=DATASET)
-
+        self.reader = DataReader(data_set=self.args.dataset, data_distribution=self.DATA_DISTRIBUTION)
+        self.target = TargetModel(self.reader, participant_index=0, model=self.args.dataset)
+        print(f'target model: {self.target.model}')
     def set_random_seed(self, seed=GLOBAL_SEED):
         '''
         Set random seed for reproducibility.
@@ -340,6 +364,7 @@ class Organizer():
         # Initialize aggregator with given parameter size
         aggregator = Aggregator(self.target.get_flatten_parameters(), DEFAULT_AGR)
         attack_times = 0
+        start_attack_flag = False; start_attack_epoch = 0
 
         # Print parameters
         logger.info("AGR is {}".format(DEFAULT_AGR))
@@ -353,7 +378,7 @@ class Organizer():
         logger.info("cover factor is {},cover dataset size is {}".format(COVER_FACTOR, RESERVED_SAMPLE))
 
         # Initialize global model
-        global_model = FederatedModel(self.reader, aggregator)
+        global_model = FederatedModel(self.reader, aggregator, DATASET)
         global_model.init_global_model()
         test_loss, test_acc = global_model.test_outcome()
 
@@ -365,7 +390,7 @@ class Organizer():
         # Initialize participants
         participants = []
         for i in range(NUMBER_OF_PARTICIPANTS):
-            participants.append(FederatedModel(self.reader, aggregator))
+            participants.append(FederatedModel(self.reader, aggregator, DATASET))
             participants[i].init_participant(global_model, i)
             test_loss, test_acc = participants[i].test_outcome()
             if DEFAULT_AGR == FANG:
@@ -376,9 +401,11 @@ class Organizer():
             logger.info("Participant {} initiated, loss={:.4f}, acc={:.4f}".format(i, test_loss, test_acc))
 
         # Initialize attacker
-        attacker = BlackBoxMalicious(self.reader, aggregator)
+        attacker = BlackBoxMalicious(self.reader, aggregator, DATASET)
         # global model history
         global_model_lst = []
+        global_model_loss_lst = []
+        global_model_trainAcc_lst = []
         for j in range(self.MAX_EPOCH):
             # The global model's parameter is shared to each participant before every communication round
             steal_grad_lst = []
@@ -386,6 +413,7 @@ class Organizer():
             # save global model for delay
             global_model_lst.append(global_parameters)
             train_acc_collector = []
+            train_loss_collector = []
             # sample  C * (Num_paritcipant + Num_attacker) to participate in training
             random_user_id = random.sample([i for i in range(0, NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY)], math.ceil(C * (NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY)))
 
@@ -404,6 +432,7 @@ class Organizer():
                 # The participants calculate local train loss and train accuracy
                 train_loss, train_acc = participants[i].train_loss, participants[i].train_acc
                 train_acc_collector.append(train_acc)
+                train_loss_collector.append(train_loss)
                 # The participants calculate local test loss and test accuracy
                 test_loss, test_acc = participants[i].test_outcome()
                 if record_process:
@@ -443,7 +472,8 @@ class Organizer():
                 # print(f'Attack: {ATTACK}')
                 # attacker attack
                 # attcker train the model within the defined training epoch
-                if j < self.TRAIN_EPOCH:
+                # if j < self.TRAIN_EPOCH:
+                if not start_attack_flag:
                     attacker.train()
                 # attacker attack the model within the defined attack epoch
                 else:
@@ -492,11 +522,20 @@ class Organizer():
             #Global model calculate the test loss and test accuracy
             test_loss, test_acc = global_model.test_outcome()
             train_acc = torch.mean(torch.tensor(train_acc_collector)).item()
+            train_loss = torch.mean(torch.tensor(train_loss_collector)).item()
+            global_model_loss_lst.append(train_loss)
+            global_model_trainAcc_lst.append(train_acc)
             if record_process:
                 acc_recorder.loc[len(acc_recorder)] = (j + 1, "g", test_loss, test_acc, train_acc)
             logger.info(
-                "Epoch {} Global model, test_loss={}, test_acc={}, train_acc={}".format(j + 1, test_loss, test_acc,
-                                                                                        train_acc))
+                "Epoch {} Global model, test_loss={}, test_acc={}, train_loss={}, train_acc={}".format(j + 1, test_loss, test_acc,
+                                                                                                        train_loss, train_acc))
+            
+            # check whether the attacker can start attack(whether the global model is converaged)
+            if not start_attack_flag and len(global_model_loss_lst) > 2 and check_convergence(global_model_trainAcc_lst[-3:]):
+                start_attack_flag = True
+                logger.info(f"Start attack at {j}")
+                start_attack_epoch = j
         # Printing and recording
         # record best round info
         best_attack_index = attack_recorder["acc"].idxmax()
@@ -510,9 +549,9 @@ class Organizer():
         logger.info("attack success round {}, total {}".format(attacker_success_round, len(attacker_success_round)))
 
         logger.info(
-            "Best result: \nattack_acc={}\ntarget_model_train_acc={}\ntarget_model_test_acc={}\nmember_pred_acc={}\nnon-member_pred_acc={}\nbest_attack_acc_epoch={}\nattacker_participate_times={}\n" \
+            "Best result: \nattack_acc={}\ntarget_model_train_acc={}\ntarget_model_test_acc={}\nmember_pred_acc={}\nnon-member_pred_acc={}\nbest_attack_acc_epoch={}\nattacker_participate_times={}\nstart_attack_epoch={}\n" 
                 .format(best_attack_acc, target_model_train_acc, target_model_test_acc, member_pred_acc, \
-                        non_member_pred_acc, best_attack_acc_epoch, attack_times))
+                        non_member_pred_acc, best_attack_acc_epoch, attack_times, start_attack_epoch))
 
         logger.info(f'attack round={ATTACK_ROUND}')
         # record the model

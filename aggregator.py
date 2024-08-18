@@ -322,11 +322,11 @@ class RobustMechanism:
         :return: The average of the gradients after adding the malicious gradient
         """
         gradients = torch.vstack(gradients)
-        if self.function == self.naive_average or self.function == self.median or self.function == self.Fang_defense:
+        if self.function == self.naive_average or self.function == self.median:
             return self.function(gradients)
         elif self.function == self.trimmed_mean:
             return self.function(gradients, malicious_user, TRIM_BOUND)
-        elif self.function == self.krum:
+        elif self.function == self.krum or self.function == self.Fang_defense:
             return self.function(gradients, malicious_user)
         elif self.function == self.multi_krum:
             return self.function(gradients, malicious_user, MULTI_KRUM_K)
