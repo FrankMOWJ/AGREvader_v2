@@ -1,6 +1,7 @@
 import numpy as np
 from constants import *
 from sklearn.cluster import KMeans
+import torch.nn.functional as F
 
 
 class Aggregator:
@@ -101,6 +102,12 @@ class RobustMechanism:
             self.function = self.multi_krum
         elif robust_mechanism == DEEPSIGHT:
             self.function = self.deepsight
+        elif robust_mechanism == RFLBAT:
+            self.function = self.RFLBAT
+        elif robust_mechanism == FLAME:
+            self.function = self.FLAME
+        elif robust_mechanism == FOOLSGOLD:
+            self.function = self.Foolsgold
         self.agr_model = None
 
 
@@ -292,7 +299,7 @@ class RobustMechanism:
 
         return aggregated_gradient
     
-    def RFLBAT(self, input_gradients: torch.Tensor, malicious_user: int):
+    def RFLBAT(self, input_gradients: torch.Tensor, malicious_user: int, num_components=2):
         '''
         The RFLBAT mechanism
         :param input_gradients: The gradients collected from participants
@@ -300,7 +307,62 @@ class RobustMechanism:
         :return: The average of the gradients after removing the malicious participants
         '''
         
-        pass
+        # Step 1: PCA for dimensionality reduction using torch.pca_lowrank
+        U, S, V = torch.pca_lowrank(input_gradients, q=num_components)
+        X_dr = torch.mm(input_gradients, V[:, :num_components])
+        
+        # Step 2: Pair-wise Euclidean distance and outlier filtering
+        eu_list = []
+        for i in range(len(X_dr)):
+            eu_sum = 0
+            for j in range(len(X_dr)):
+                if i == j:
+                    continue
+                eu_sum += torch.norm(X_dr[i] - X_dr[j]).item()
+            eu_list.append(eu_sum)
+        
+        # Filter outliers based on a threshold
+        threshold1 = torch.median(torch.tensor(eu_list)) * 1.5  # 1.5 is an arbitrary factor
+        accept_indices = [i for i, eu_sum in enumerate(eu_list) if eu_sum < threshold1]
+
+        # Step 3: K-means clustering using torch
+        accepted_X_dr = X_dr[accept_indices]
+        kmeans = KMeans(n_clusters=num_components)
+        labels = kmeans.fit_predict(accepted_X_dr.cpu().numpy())
+        
+        # Step 4: Select the optimal cluster based on cosine similarity
+        min_cosine_similarity = float('inf')
+        optimal_cluster_indices = []
+        for i in range(num_components):
+            cluster_indices = [idx for idx, label in enumerate(labels) if label == i]
+            cluster_data = accepted_X_dr[cluster_indices]
+            mean_gradient = torch.mean(cluster_data, dim=0)
+            cosine_similarities = F.cosine_similarity(cluster_data, mean_gradient.unsqueeze(0), dim=1)
+            avg_cosine_similarity = torch.mean(cosine_similarities)
+            if avg_cosine_similarity < min_cosine_similarity:
+                min_cosine_similarity = avg_cosine_similarity
+                optimal_cluster_indices = cluster_indices
+        
+        # Step 5: Final outlier filtering in the optimal cluster
+        final_accept_indices = []
+        optimal_cluster_data = accepted_X_dr[optimal_cluster_indices]
+        final_eu_list = []
+        for i in range(len(optimal_cluster_data)):
+            eu_sum = 0
+            for j in range(len(optimal_cluster_data)):
+                if i == j:
+                    continue
+                eu_sum += torch.norm(optimal_cluster_data[i] - optimal_cluster_data[j]).item()
+            final_eu_list.append(eu_sum)
+        
+        threshold2 = torch.median(torch.tensor(final_eu_list)) * 1.5  # 1.5 is an arbitrary factor
+        final_accept_indices = [optimal_cluster_indices[i] for i, eu_sum in enumerate(final_eu_list) if eu_sum < threshold2]
+        
+        # Step 6: Calculate and return the average of the remaining gradients
+        accepted_gradients = input_gradients[final_accept_indices]
+        average_gradient = torch.mean(accepted_gradients, dim=0)
+        
+        return average_gradient
     
     def FLAME(self, input_gradients: torch.Tensor, malicious_user: int):
         '''
@@ -310,7 +372,51 @@ class RobustMechanism:
         :return: The average of the gradients after removing the malicious participants
         '''
         
-        pass
+        # Step 1: Calculate the mean and standard deviation of the gradients
+        mean_gradient = torch.mean(input_gradients, dim=0)
+        std_gradient = torch.std(input_gradients, dim=0)
+        
+        # Step 2: Calculate z-scores for each participant's gradients
+        z_scores = torch.abs((input_gradients - mean_gradient) / std_gradient)
+        
+        # Step 3: Identify and remove the gradients of malicious users
+        # Here we assume that the malicious users have high z-scores
+        threshold = torch.topk(z_scores, malicious_user, dim=0).values[-1]
+        mask = torch.all(z_scores <= threshold, dim=1)
+        filtered_gradients = input_gradients[mask]
+        
+        # Step 4: Return the average of the filtered gradients
+        return torch.mean(filtered_gradients, dim=0)
+
+    def Foolsgold(self, input_gradients: torch.Tensor, malicious_user: int):
+        '''
+        The Foolsgold mechanism
+        :param input_gradients: The gradients collected from participants, shape (num_participants, num_params)
+        :param malicious_user: The number of malicious participants
+        :return: The average of the gradients after removing the malicious participants
+        '''
+        num_participants = input_gradients.shape[0]
+
+        # 1. Compute cosine similarity between participants
+        cos_sim = F.cosine_similarity(input_gradients.unsqueeze(1), input_gradients.unsqueeze(0), dim=2).to(DEVICE)
+
+        # 2. Initialize credit scores
+        credit_scores = torch.ones(num_participants, device=DEVICE)
+
+        # 3. Adjust credit scores based on cosine similarity
+        for i in range(num_participants):
+            for j in range(num_participants):
+                if i != j:
+                    credit_scores[i] *= (1 - cos_sim[i, j])
+
+        # 4. Inverse of credit score to penalize high similarity
+        weights = 1.0 / (credit_scores + 1e-6)  # avoid division by zero
+        weights = weights / torch.sum(weights)  # normalize weights
+
+        # 5. Compute the weighted average of gradients
+        weighted_avg_gradient = torch.matmul(weights.unsqueeze(0), input_gradients).squeeze()
+
+        return weighted_avg_gradient
     
         
         
@@ -322,15 +428,17 @@ class RobustMechanism:
         :return: The average of the gradients after adding the malicious gradient
         """
         gradients = torch.vstack(gradients)
-        if self.function == self.naive_average or self.function == self.median:
+        if self.function == self.naive_average or self.function == self.median or self.function == self.Fang_defense:
             return self.function(gradients)
+        elif self.function == self.krum or self.function == self.FLAME or self.function == self.Foolsgold:
+            return self.function(gradients, malicious_user)
         elif self.function == self.trimmed_mean:
             return self.function(gradients, malicious_user, TRIM_BOUND)
-        elif self.function == self.krum or self.function == self.Fang_defense:
-            return self.function(gradients, malicious_user)
         elif self.function == self.multi_krum:
             return self.function(gradients, malicious_user, MULTI_KRUM_K)
         elif self.function == self.deepsight:
             return self.function(gradients, malicious_user, NUM_CLUSTER)
+        elif self.function == self.RFLBAT:
+            return self.function(gradients, malicious_user, NUM_COMPONENTS)
         else:
             raise ValueError("The robust mechanism is not implemented yet.")

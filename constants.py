@@ -61,6 +61,13 @@ MULTI_KRUM_K = 3 #Number of Krum
 DEEPSIGHT = "Deepsight" #Robust AGR -DeepSight
 NUM_CLUSTER = 2
 
+RFLBAT = "Rflbat"
+NUM_COMPONENTS = 2
+
+FLAME = "Flame"
+
+FOOLSGOLD = "Foolsgold"
+
 # Federated learning parameters
 NUMBER_OF_PARTICIPANTS = 4 #Number of participants
 PARAMETER_EXCHANGE_RATE = 1 #Parameter exchange rate
