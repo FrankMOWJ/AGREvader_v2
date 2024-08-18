@@ -109,6 +109,7 @@ class RobustMechanism:
         elif robust_mechanism == FOOLSGOLD:
             self.function = self.Foolsgold
         self.agr_model = None
+        self.history_gradients = None  # To store historical gradients for each client
 
 
     def agr_model_acquire(self, model: torch.nn.Module):
@@ -395,29 +396,35 @@ class RobustMechanism:
         :param malicious_user: The number of malicious participants
         :return: The average of the gradients after removing the malicious participants
         '''
+        
+        # 1. Update historical gradients
+        if self.history_gradients is None:
+            self.history_gradients = input_gradients.unsqueeze(0)
+        else:
+            self.history_gradients = torch.cat((self.history_gradients, input_gradients.unsqueeze(0)), dim=0)
+        
         num_participants = input_gradients.shape[0]
 
-        # 1. Compute cosine similarity between participants
-        cos_sim = F.cosine_similarity(input_gradients.unsqueeze(1), input_gradients.unsqueeze(0), dim=2).to(DEVICE)
+        # 2. Compute cosine similarity between pair-wise historical updates
+        history_cos_sim = F.cosine_similarity(self.history_gradients.unsqueeze(1), self.history_gradients.unsqueeze(2), dim=3).to(DEVICE)
 
-        # 2. Initialize credit scores
+        # 3. Initialize credit scores
         credit_scores = torch.ones(num_participants, device=DEVICE)
 
-        # 3. Adjust credit scores based on cosine similarity
+        # 4. Adjust credit scores based on cosine similarity
         for i in range(num_participants):
             for j in range(num_participants):
                 if i != j:
-                    credit_scores[i] *= (1 - cos_sim[i, j])
+                    credit_scores[i] *= (1 - history_cos_sim[-1, i, j])  # Use the latest updates' similarity
 
-        # 4. Inverse of credit score to penalize high similarity
+        # 5. Inverse of credit score to penalize high similarity
         weights = 1.0 / (credit_scores + 1e-6)  # avoid division by zero
         weights = weights / torch.sum(weights)  # normalize weights
 
-        # 5. Compute the weighted average of gradients
+        # 6. Compute the weighted average of gradients
         weighted_avg_gradient = torch.matmul(weights.unsqueeze(0), input_gradients).squeeze()
 
-        return weighted_avg_gradient
-    
+        return weighted_avg_gradient    
         
         
     def getter(self, gradients, malicious_user=NUMBER_OF_ADVERSARY):
