@@ -128,7 +128,7 @@ class RobustMechanism:
         """
         return torch.mean(input_gradients, 0)
 
-    def median(self, input_gradients: torch.Tensor,number_of_malicious):
+    def median(self, input_gradients: torch.Tensor):
         """
         The median AGR
         :param input_gradients: The gradients collected from participants
@@ -435,9 +435,10 @@ class RobustMechanism:
         :return: The average of the gradients after adding the malicious gradient
         """
         gradients = torch.vstack(gradients)
-        if self.function == self.naive_average or self.function == self.median or self.function == self.Fang_defense:
+        if self.function == self.naive_average or self.function == self.median:
             return self.function(gradients)
-        elif self.function == self.krum or self.function == self.FLAME or self.function == self.Foolsgold:
+        elif self.function == self.krum or self.function == self.FLAME \
+            or self.function == self.Foolsgold or self.function == self.Fang_defense:
             return self.function(gradients, malicious_user)
         elif self.function == self.trimmed_mean:
             return self.function(gradients, malicious_user, TRIM_BOUND)
