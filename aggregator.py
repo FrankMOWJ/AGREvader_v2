@@ -377,13 +377,23 @@ class RobustMechanism:
         mean_gradient = torch.mean(input_gradients, dim=0)
         std_gradient = torch.std(input_gradients, dim=0)
         
+        # Avoid division by zero by adding a small value to the standard deviation
+        std_gradient[std_gradient == 0] += 1e-8
+        
         # Step 2: Calculate z-scores for each participant's gradients
         z_scores = torch.abs((input_gradients - mean_gradient) / std_gradient)
         
         # Step 3: Identify and remove the gradients of malicious users
         # Here we assume that the malicious users have high z-scores
-        threshold = torch.topk(z_scores, malicious_user, dim=0).values[-1]
+        # Ensure that threshold is calculated safely
+        threshold = torch.topk(z_scores, min(malicious_user, input_gradients.size(0)), dim=0).values[-1]
         mask = torch.all(z_scores <= threshold, dim=1)
+        
+        # Handle case where all users are considered malicious
+        if mask.sum() == 0:
+            # Consider returning the mean of the input gradients in case of full filtering
+            return mean_gradient
+        
         filtered_gradients = input_gradients[mask]
         
         # Step 4: Return the average of the filtered gradients
