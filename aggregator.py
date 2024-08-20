@@ -109,7 +109,7 @@ class RobustMechanism:
         elif robust_mechanism == FOOLSGOLD:
             self.function = self.Foolsgold
         self.agr_model = None
-        self.history_gradients = None  # To store historical gradients for each client
+        self.history_gradients = []  # To store historical gradients for each client
 
 
     def agr_model_acquire(self, model: torch.nn.Module):
@@ -398,15 +398,17 @@ class RobustMechanism:
         '''
         
         # 1. Update historical gradients
-        if self.history_gradients is None:
-            self.history_gradients = input_gradients.unsqueeze(0)
-        else:
-            self.history_gradients = torch.cat((self.history_gradients, input_gradients.unsqueeze(0)), dim=0)
-        
+        self.history_gradients.append(input_gradients)
+        # Limit the history length
+        if len(self.history_gradients) > 50:
+            self.history_gradients.pop(0)  # Remove the oldest gradient if history is full
+
         num_participants = input_gradients.shape[0]
+        
+        history_tensor = torch.stack(self.history_gradients).to(DEVICE)
 
         # 2. Compute cosine similarity between pair-wise historical updates
-        history_cos_sim = F.cosine_similarity(self.history_gradients.unsqueeze(1), self.history_gradients.unsqueeze(2), dim=3).to(DEVICE)
+        history_cos_sim = F.cosine_similarity(history_tensor.unsqueeze(1), history_tensor.unsqueeze(2), dim=3).to(DEVICE)
 
         # 3. Initialize credit scores
         credit_scores = torch.ones(num_participants, device=DEVICE)
