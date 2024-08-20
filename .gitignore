@@ -10,3 +10,4 @@ CIFAR10_output/
 test/
 results/
 CIFAR10_output_5/
+log*/
