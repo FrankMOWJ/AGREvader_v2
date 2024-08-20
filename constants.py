@@ -4,7 +4,7 @@ import torch
 # General constants
 PYTORCH_INIT = "PyTorch" #initialisation for pytorch`
 now = datetime.now() #Current date and time
-TIME_STAMP = now.strftime("%Y_%m_%d_%H") #Time stamp for logging
+TIME_STAMP = now.strftime("%Y_%m_%d_%H_%M") #Time stamp for logging
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") #Device for training, you can use cpu or gpu
 
 # delay 
@@ -37,9 +37,14 @@ CIFAR10_PATH = "~/.torch/"
 MNIST = 'MNIST'
 MNIST_PATH = "~/.torch/"
 
-FASHION_MINST = 'FASHION_MINST'
+FASHION_MNIST = 'FASHION_MNIST'
 FASHION_MNIST_PATH = '~/.torch/'
 
+PURCHASE100 = "Purchase100"
+PURCHASE100_PATH = "./datasets-master/purchase100.npz"
+
+TEXAS100 = "Texas100"
+TEXAS100_PATH = "./datasets-master/texas100.npz"
 
 DATASET = CIFAR10
 # Attack method
@@ -69,7 +74,7 @@ FLAME = "Flame"
 FOOLSGOLD = "Foolsgold"
 
 # Federated learning parameters
-NUMBER_OF_PARTICIPANTS = 4 #Number of participants
+NUMBER_OF_PARTICIPANTS = 9 #Number of participants
 PARAMETER_EXCHANGE_RATE = 1 #Parameter exchange rate
 PARAMETER_SAMPLE_THRESHOLD = 1 #Parameter sample threshold
 GRADIENT_EXCHANGE_RATE = 1 #Gradient exchange rate

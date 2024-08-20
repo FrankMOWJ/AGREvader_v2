@@ -36,7 +36,7 @@ def make_logger(name, save_dir, save_filename):
     return logger
 
 
-def select_by_threshold(to_share: torch.Tensor, select_fraction: float, select_threshold: float = 1):
+def select_by_threshold(to_share: torch.Tensor, select_fraction: float, device, select_threshold: float = 1):
     """
     Apply the privacy-preserving method following selection-by-threshold approach
     :param to_share: the tensor to share
@@ -47,11 +47,11 @@ def select_by_threshold(to_share: torch.Tensor, select_fraction: float, select_t
     threshold_count = round(to_share.size(0) * select_threshold)
     selection_count = round(to_share.size(0) * select_fraction)
     indices = to_share.topk(threshold_count).indices
-    perm = torch.randperm(threshold_count).to(DEVICE)
+    perm = torch.randperm(threshold_count).to(device)
     indices = indices[perm[:selection_count]]
-    rei = torch.zeros(to_share.size()).to(DEVICE)
-    rei[indices] = to_share[indices].to(DEVICE)
-    to_share = rei.to(DEVICE)
+    rei = torch.zeros(to_share.size()).to(device)
+    rei[indices] = to_share[indices].to(device)
+    to_share = rei.to(device)
     return to_share, indices
 
 
@@ -77,6 +77,50 @@ class ModelLocation30(torch.nn.Module):
         out = self.output_layer(out)
         return out
 
+class ModelPurchase100(torch.nn.Module):
+    """
+    The model to handel Location100 dataset
+    """
+
+    def __init__(self):
+        super(ModelPurchase100, self).__init__()
+        self.input_layer = torch.nn.Sequential(
+            torch.nn.Linear(100, 512),
+            torch.nn.ReLU(),
+        )
+        self.output_layer = torch.nn.Sequential(
+            torch.nn.Linear(512, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 100),
+        )
+
+    def forward(self, x):
+        out = self.input_layer(x)
+        out = self.output_layer(out)
+        return out
+
+class ModelTexas100(torch.nn.Module):
+    """
+    The model to handel Location100 dataset
+    """
+
+    def __init__(self):
+        super(ModelTexas100, self).__init__()
+        self.input_layer = torch.nn.Sequential(
+            torch.nn.Linear(6169, 512),
+            torch.nn.ReLU(),
+        )
+        self.output_layer = torch.nn.Sequential(
+            torch.nn.Linear(512, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 100),
+        )
+
+    def forward(self, x):
+        out = self.input_layer(x)
+        out = self.output_layer(out)
+        return out
+    
 # 定义 ResBlock 和 ResNet20 类
 class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1, bn=True):
@@ -101,7 +145,7 @@ class ResBlock(nn.Module):
         return out
 
 class ResNet20(nn.Module):
-    def __init__(self, input_shape=(3, 32, 32), output_shape=10, bn=True):
+    def __init__(self, input_shape=(3, 32, 32), pooling_size=8, output_shape=10, bn=True):
         super(ResNet20, self).__init__()
         self.conv1 = nn.Conv2d(input_shape[0], 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16) if bn else nn.Identity()
@@ -109,7 +153,7 @@ class ResNet20(nn.Module):
         self.layer1 = self._make_layer(16, 16, 3, stride=1, bn=bn)
         self.layer2 = self._make_layer(16, 32, 3, stride=2, bn=bn)
         self.layer3 = self._make_layer(32, 64, 3, stride=2, bn=bn)
-        self.avgpool = nn.AvgPool2d(8)
+        self.avgpool = nn.AvgPool2d(pooling_size)
         self.fc = nn.Linear(64, output_shape)
 
     def _make_layer(self, in_channels, out_channels, blocks, stride, bn):
@@ -134,20 +178,25 @@ class TargetModel:
     The model to attack against, the target for attacking
     """
 
-    def __init__(self, data_reader: DataReader, model, participant_index=0):
+    def __init__(self, data_reader: DataReader, model, device, participant_index=0):
+        self.DEVICE = device
         # initialize the model
         print(f'model: {model}')
         if model == LOCATION30:
             self.model = ModelLocation30()
+        elif model == PURCHASE100:
+            self.model = ModelPurchase100()
+        elif model == TEXAS100:
+            self.model = ModelTexas100()
         elif model == CIFAR10:
             self.model = ResNet20()
         elif model == MNIST:
-            self.model = ResNet20(input_shape=(1, 28, 28), output_shape=10)
-        elif model == FASHION_MINST:
-            self.model = ResNet20(input_shape=(1, 28, 28), output_shape=10)
+            self.model = ResNet20(input_shape=(1, 28, 28), pooling_size=7, output_shape=10)
+        elif model == FASHION_MNIST:
+            self.model = ResNet20(input_shape=(1, 28, 28), pooling_size=7, output_shape=10)
         else:
             raise NotImplementedError("Model not supported")
-        self.model = self.model.to(DEVICE)
+        self.model = self.model.to(self.DEVICE)
 
         # initialize the data
         self.test_set = None
@@ -157,7 +206,7 @@ class TargetModel:
         self.load_data()
 
         # initialize the loss function and optimizer
-        self.loss_function = torch.nn.CrossEntropyLoss().to(DEVICE)
+        self.loss_function = torch.nn.CrossEntropyLoss().to(self.DEVICE)
         # learning rate keeps default value 0.001
         self.optimizer = torch.optim.Adam(self.model.parameters())
 
@@ -173,8 +222,8 @@ class TargetModel:
         Load batch indices from the data reader
         :return: None
         """
-        self.train_set = self.data_reader.get_train_set(self.participant_index).to(DEVICE)
-        self.test_set = self.data_reader.get_test_set(self.participant_index).to(DEVICE)
+        self.train_set = self.data_reader.get_train_set(self.participant_index).to(self.DEVICE)
+        self.test_set = self.data_reader.get_test_set(self.participant_index).to(self.DEVICE)
         
         
         print('**************************************')
@@ -208,12 +257,12 @@ class TargetModel:
                     print("Currently training for batch {}, overall {} batches"
                           .format(batch_counter, self.train_set.size(0)))
                 batch_x, batch_y = self.data_reader.get_batch(batch_indices)
-                batch_x = batch_x.to(DEVICE)
-                batch_y = batch_y.to(DEVICE)
-                out = self.model(batch_x).to(DEVICE)
+                batch_x = batch_x.to(self.DEVICE)
+                batch_y = batch_y.to(self.DEVICE)
+                out = self.model(batch_x).to(self.DEVICE)
                 batch_loss = self.loss_function(out, batch_y)
                 train_loss += batch_loss.item()
-                prediction = torch.max(out, 1).indices.to(DEVICE)
+                prediction = torch.max(out, 1).indices.to(self.DEVICE)
                 batch_acc = (prediction == batch_y).sum()
                 train_acc += batch_acc.item()
                 self.optimizer.zero_grad()
@@ -237,16 +286,16 @@ class TargetModel:
         if by_batch:
             for batch_indices in self.test_set:
                 batch_x, batch_y = self.data_reader.get_batch(batch_indices)
-                batch_x = batch_x.to(DEVICE)
-                batch_y = batch_y.to(DEVICE)
+                batch_x = batch_x.to(self.DEVICE)
+                batch_y = batch_y.to(self.DEVICE)
                 with torch.no_grad():
                     # print(f'batch x shape: {batch_x.shape}')
                     # batch x shape: torch.Size([64, 3, 32, 32])
-                    out = self.model(batch_x).to(DEVICE)
-                    batch_loss = self.loss_function(out, batch_y).to(DEVICE)
+                    out = self.model(batch_x).to(self.DEVICE)
+                    batch_loss = self.loss_function(out, batch_y).to(self.DEVICE)
                     test_loss += batch_loss.item()
-                    prediction = torch.max(out, 1).indices.to(DEVICE)
-                    batch_acc = (prediction == batch_y).sum().to(DEVICE)
+                    prediction = torch.max(out, 1).indices.to(self.DEVICE)
+                    batch_acc = (prediction == batch_y).sum().to(self.DEVICE)
                     test_acc += batch_acc.item()
         test_acc = test_acc / (self.test_set.flatten().size(0))
         test_loss = test_loss / (self.test_set.flatten().size(0))
@@ -257,10 +306,10 @@ class TargetModel:
         Return the flatten parameter of the current model
         :return: the flatten parameters as tensor
         """
-        out = torch.zeros(0).to(DEVICE)
+        out = torch.zeros(0).to(self.DEVICE)
         with torch.no_grad():
             for name, parameter in self.model.named_parameters():
-                out = torch.cat([out, parameter.flatten()]).to(DEVICE)
+                out = torch.cat([out, parameter.flatten()]).to(self.DEVICE)
         return out
 
     def get_fc_flatten_parameters(self):
@@ -268,11 +317,11 @@ class TargetModel:
         Return the flatten parameter of the last lineat layer
         :return: the flatten parameters as tensor
         """
-        out = torch.zeros(0).to(DEVICE)
+        out = torch.zeros(0).to(self.DEVICE)
         with torch.no_grad():
             for name, parameter in self.model.named_parameters():
                 if 'fc' in name:
-                    out = torch.cat([out, parameter.flatten()]).to(DEVICE)
+                    out = torch.cat([out, parameter.flatten()]).to(self.DEVICE)
         return out
 
     def load_parameters(self, parameters: torch.Tensor):
@@ -284,10 +333,10 @@ class TargetModel:
         start_index = 0
         for param in self.model.parameters():
             length = len(param.flatten())
-            to_load = parameters[start_index: start_index + length].to(DEVICE)
-            to_load = to_load.reshape(param.size()).to(DEVICE)
+            to_load = parameters[start_index: start_index + length].to(self.DEVICE)
+            to_load = to_load.reshape(param.size()).to(self.DEVICE)
             with torch.no_grad():
-                param.copy_(to_load).to(DEVICE)
+                param.copy_(to_load).to(self.DEVICE)
             start_index += length
 
     def get_epoch_gradient(self, apply_gradient=True):
@@ -296,9 +345,9 @@ class TargetModel:
         :param apply_gradient: if apply the gradient or not
         :return: the tensor contains the gradient
         """
-        cache = self.get_flatten_parameters().to(DEVICE)
+        cache = self.get_flatten_parameters().to(self.DEVICE)
         self.normal_epoch()
-        gradient = self.get_flatten_parameters() - cache.to(DEVICE)
+        gradient = self.get_flatten_parameters() - cache.to(self.DEVICE)
         if not apply_gradient:
             self.load_parameters(cache)
         return gradient
@@ -327,21 +376,19 @@ class TargetModel:
         self.load_parameters(cache)
         return loss, acc
 
-
-
-
 class FederatedModel(TargetModel):
     """
     Representing the class of federated learning members
     """
-    def __init__(self, reader: DataReader, aggregator: Aggregator, model, participant_index=0):
+    def __init__(self, reader: DataReader, aggregator: Aggregator, model, device, participant_index=0):
         """
         Initialize the federated model
         :param reader: initialize the data reader
         :param aggregator: initialize the aggregator
         :param participant_index: the index of the participant
         """
-        super(FederatedModel, self).__init__(reader, model, participant_index)
+        super(FederatedModel, self).__init__(reader, model, device, participant_index)
+        self.DEVICE = device
         self.aggregator = aggregator
 
     def init_global_model(self):
@@ -350,7 +397,7 @@ class FederatedModel(TargetModel):
         :return: None
         """
         self.init_parameters()
-        self.test_set = self.data_reader.test_set.to(DEVICE)
+        self.test_set = self.data_reader.test_set.to(self.DEVICE)
         self.train_set = None
 
     def init_participant(self, global_model: TargetModel, participant_index):
@@ -368,7 +415,7 @@ class FederatedModel(TargetModel):
         :return: None
         """
         gradient = self.get_epoch_gradient()
-        gradient, indices = select_by_threshold(gradient, GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD)
+        gradient, indices = select_by_threshold(gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
         self.aggregator.collect(gradient, indices=indices, source=self.participant_index)
         return gradient
 
@@ -387,8 +434,8 @@ class FederatedModel(TargetModel):
         :param parameter: the parameters shared by the global model
         :return: None
         """
-        to_load = self.get_flatten_parameters().to(DEVICE)
-        parameter, indices = select_by_threshold(parameter, PARAMETER_EXCHANGE_RATE, PARAMETER_SAMPLE_THRESHOLD)
+        to_load = self.get_flatten_parameters().to(self.DEVICE)
+        parameter, indices = select_by_threshold(parameter, PARAMETER_EXCHANGE_RATE, self.DEVICE, PARAMETER_SAMPLE_THRESHOLD)
         to_load[indices] = parameter[indices]
         self.load_parameters(to_load)
 
@@ -401,13 +448,14 @@ class BlackBoxMalicious(FederatedModel):
     Representing the malicious participant trying to perform a black-box membership inference attack
     """
 
-    def __init__(self, reader: DataReader, aggregator: Aggregator, model):
+    def __init__(self, reader: DataReader, aggregator: Aggregator, model, device):
         """
         Initialize the black-box malicious participant
         :param reader: Reader to read the data
         :param aggregator: Global aggregator
         """
-        super(BlackBoxMalicious, self).__init__(reader, aggregator, model)
+        super(BlackBoxMalicious, self).__init__(reader, aggregator, model, device)
+        self.DEVICE = device
         self.attack_samples, self.members, self.non_members = reader.get_black_box_batch()
         self.member_count = 0
         self.batch_x, self.batch_y = self.data_reader.get_batch(self.attack_samples)
@@ -445,7 +493,7 @@ class BlackBoxMalicious(FederatedModel):
         loss.backward()
         self.optimizer.step()
         gradient = self.get_flatten_parameters() - cache
-        gradient, indices = select_by_threshold(gradient, GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD)
+        gradient, indices = select_by_threshold(gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
         self.aggregator.collect(gradient, indices)
         return gradient
 
@@ -485,9 +533,9 @@ class BlackBoxMalicious(FederatedModel):
 
         if RESERVED_SAMPLE != 0:
             # 这里跟论文里提到的公式似乎不太一样
-            gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
+            gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
         else:
-            gradient, indices = select_by_threshold(gradient,GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD)
+            gradient, indices = select_by_threshold(gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
         self.aggregator.collect(gradient, indices)
 
         return gradient
@@ -540,9 +588,9 @@ class BlackBoxMalicious(FederatedModel):
         
             # 组合cover和poison
             if RESERVED_SAMPLE != 0:
-                gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
+                gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
             else:
-                gradient, indices = select_by_threshold(gradient,GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD)
+                gradient, indices = select_by_threshold(gradient,GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
 
             # limitation
             max_diff = 0.0
@@ -636,9 +684,9 @@ class BlackBoxMalicious(FederatedModel):
         
             # 组合cover和poison
             if RESERVED_SAMPLE != 0:
-                gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
+                gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
             else:
-                gradient, indices = select_by_threshold(gradient,GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD)
+                gradient, indices = select_by_threshold(gradient,GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
 
             # limitation
             max_diff = 0.0
@@ -655,10 +703,12 @@ class BlackBoxMalicious(FederatedModel):
 
         # 判断使用新生成的还是使用历史最佳的
         if cur_max_agrEvader_grad == None:
-            self.aggregator.collect(gradient /torch.norm(gradient), indices)
+            self.aggregator.collect(gradient, indices)
+            # self.aggregator.collect(gradient /torch.norm(gradient), indices)
             return gradient
         else :
-            self.aggregator.collect(cur_max_agrEvader_grad / torch.norm(cur_max_agrEvader_grad), indices)
+            self.aggregator.collect(cur_max_agrEvader_grad, indices)
+            # self.aggregator.collect(cur_max_agrEvader_grad / torch.norm(cur_max_agrEvader_grad), indices)
             return cur_max_agrEvader_grad
 
     def get_angle(self, gradA: torch.Tensor, gradB: torch.Tensor):
@@ -732,9 +782,9 @@ class BlackBoxMalicious(FederatedModel):
         
             # 组合cover和poison
             if RESERVED_SAMPLE != 0:
-                gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
+                gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
             else:
-                gradient, indices = select_by_threshold(gradient,GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD)
+                gradient, indices = select_by_threshold(gradient,GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
 
             # limitation
             max_diff = 0.0
@@ -754,12 +804,12 @@ class BlackBoxMalicious(FederatedModel):
 
         # 判断使用新生成的还是使用历史最佳的
         if cur_max_agrEvader_grad == None:
-            self.aggregator.collect(gradient / torch.norm(gradient), indices)
-            # self.aggregator.collect(gradient, indices)
+            # self.aggregator.collect(gradient / torch.norm(gradient), indices)
+            self.aggregator.collect(gradient, indices)
             return gradient
         else :
-            self.aggregator.collect(cur_max_agrEvader_grad / torch.norm(cur_max_agrEvader_grad), indices)
-            # self.aggregator.collect(cur_max_agrEvader_grad, indices)
+            # self.aggregator.collect(cur_max_agrEvader_grad / torch.norm(cur_max_agrEvader_grad), indices)
+            self.aggregator.collect(cur_max_agrEvader_grad, indices)
             return cur_max_agrEvader_grad
 
     def blackbox_attack_cos(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None):
@@ -811,9 +861,9 @@ class BlackBoxMalicious(FederatedModel):
         
             # 组合cover和poison
             if RESERVED_SAMPLE != 0:
-                gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
+                gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
             else:
-                gradient, indices = select_by_threshold(gradient,GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD)
+                gradient, indices = select_by_threshold(gradient,GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
 
             # limitation
             min_diff = 10.0
@@ -943,7 +993,7 @@ class GreyBoxMalicious(FederatedModel):
             self.optimizer.step()
             i += 1
         gradient = self.get_flatten_parameters() - cache
-        gradient, indices = select_by_threshold(gradient, GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD)
+        gradient, indices = select_by_threshold(gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
         self.aggregator.collect(gradient, indices)
         return gradient
 
@@ -1017,7 +1067,7 @@ class GreyBoxMalicious(FederatedModel):
                 selected_k = k
 
         gradient = cover_factor * desc_gradient - asc_gradient * 1 + mislead_factor * mislead_gradients[selected_k]
-        gradient, indices = select_by_threshold(gradient, GRADIENT_EXCHANGE_RATE, GRADIENT_SAMPLE_THRESHOLD)
+        gradient, indices = select_by_threshold(gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
         self.aggregator.collect(gradient, indices)
 
         return gradient
@@ -1116,5 +1166,5 @@ if __name__ == "__main__":
 
     for name, parameter in model.named_parameters():
         print(name)
-        # out = torch.cat([out, parameter.flatten()]).to(DEVICE)
+        # out = torch.cat([out, parameter.flatten()]).to(self.DEVICE)
 

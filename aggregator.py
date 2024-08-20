@@ -9,16 +9,17 @@ class Aggregator:
     The aggregator class collecting gradients calculated by participants and plus together
     """
 
-    def __init__(self, sample_gradients: torch.Tensor, robust_mechanism=None):
+    def __init__(self, sample_gradients: torch.Tensor, device, robust_mechanism=None):
         """
         Initiate the aggregator according to the tensor size of a given sample
         :param sample_gradients: The tensor size of a sample gradient
         :param robust_mechanism: the robust mechanism used to aggregate the gradients
         """
-        self.sample_gradients = sample_gradients.to(DEVICE)
+        self.DEVICE = device
+        self.sample_gradients = sample_gradients.to(self.DEVICE)
         self.collected_gradients = []
         self.counter = 0
-        self.counter_by_indices = torch.ones(self.sample_gradients.size()).to(DEVICE)
+        self.counter_by_indices = torch.ones(self.sample_gradients.size()).to(self.DEVICE)
         self.robust = RobustMechanism(robust_mechanism)
 
         # AGR related parameters
@@ -30,7 +31,7 @@ class Aggregator:
         """
         self.collected_gradients = []
         self.counter = 0
-        self.counter_by_indices = torch.ones(self.sample_gradients.size()).to(DEVICE)
+        self.counter_by_indices = torch.ones(self.sample_gradients.size()).to(self.DEVICE)
         self.agr_model_calculated = False
 
     def collect(self, gradient: torch.Tensor,source, indices=None, sample_count=None):
@@ -418,10 +419,14 @@ class RobustMechanism:
         history_tensor = torch.stack(self.history_gradients).to(DEVICE)
 
         # 2. Compute cosine similarity between pair-wise historical updates
+<<<<<<< Updated upstream
         history_cos_sim = F.cosine_similarity(history_tensor.unsqueeze(1), history_tensor.unsqueeze(2), dim=3).to(DEVICE)
+=======
+        history_cos_sim = F.cosine_similarity(self.history_gradients.unsqueeze(1), self.history_gradients.unsqueeze(2), dim=3).to(self.DEVICE)
+>>>>>>> Stashed changes
 
         # 3. Initialize credit scores
-        credit_scores = torch.ones(num_participants, device=DEVICE)
+        credit_scores = torch.ones(num_participants, device=self.DEVICE)
 
         # 4. Adjust credit scores based on cosine similarity
         for i in range(num_participants):

@@ -41,7 +41,7 @@ def get_parser(**parser_kwargs):
         "--dataset",
         help="dataset",
         required=True,
-        choices=['CIFAR10', 'Location30', 'Purchase100'],
+        choices=['CIFAR10', 'Location30', 'Purchase100', 'MNIST', 'FASHION_MNIST', 'Texas100'],
         default='CIFAR10'
     )
 
@@ -74,6 +74,7 @@ def get_parser(**parser_kwargs):
     parser.add_argument(
         "--device",
         help="device index",
+        type=int,
         default=0
     )
     
@@ -104,6 +105,13 @@ def get_parser(**parser_kwargs):
         help="Number of epoches for attacker to normal training",
         default=5,
         type=int
+    )
+    
+    parser.add_argument(
+        "--output_dir",
+        help="log output direction.",
+        default='./log/',
+        type=str
     )
 
     args = parser.parse_args()
@@ -151,10 +159,12 @@ class Organizer():
         self.DATA_DISTRIBUTION = self.args.dist
         self.MAX_EPOCH = self.args.max_epoch
         self.TRAIN_EPOCH = self.args.train_epoch
+        self.DEVICE =  torch.device(f"cuda:{self.args.device}" if torch.cuda.is_available() else "cpu")
         self.set_random_seed()
-        self.reader = DataReader(data_set=self.args.dataset, data_distribution=self.DATA_DISTRIBUTION)
-        self.target = TargetModel(self.reader, participant_index=0, model=self.args.dataset)
+        self.reader = DataReader(data_set=self.args.dataset, data_distribution=self.DATA_DISTRIBUTION, device=self.DEVICE)
+        self.target = TargetModel(self.reader, participant_index=0, device=self.DEVICE, model=self.args.dataset)
         print(f'target model: {self.target.model}')
+    
     def set_random_seed(self, seed=GLOBAL_SEED):
         '''
         Set random seed for reproducibility.
@@ -351,6 +361,7 @@ class Organizer():
         T_DELAY = self.args.delay
         DATASET = self.args.dataset
         TRY_TIMES = self.args.cover_times
+        EXPERIMENTAL_DATA_DIRECTORY = self.args.output_dir
         ATTACK_ROUND = []
 
         # Initialize data frame for recording purpose
@@ -362,7 +373,7 @@ class Organizer():
         attacker_success_round = []  # Record the round when attacker succeeds
 
         # Initialize aggregator with given parameter size
-        aggregator = Aggregator(self.target.get_flatten_parameters(), DEFAULT_AGR)
+        aggregator = Aggregator(self.target.get_flatten_parameters(), self.DEVICE, DEFAULT_AGR)
         attack_times = 0
         start_attack_flag = False; start_attack_epoch = 0
 
@@ -378,7 +389,7 @@ class Organizer():
         logger.info("cover factor is {},cover dataset size is {}".format(COVER_FACTOR, RESERVED_SAMPLE))
 
         # Initialize global model
-        global_model = FederatedModel(self.reader, aggregator, DATASET)
+        global_model = FederatedModel(self.reader, aggregator, DATASET, self.DEVICE)
         global_model.init_global_model()
         test_loss, test_acc = global_model.test_outcome()
 
@@ -390,7 +401,7 @@ class Organizer():
         # Initialize participants
         participants = []
         for i in range(NUMBER_OF_PARTICIPANTS):
-            participants.append(FederatedModel(self.reader, aggregator, DATASET))
+            participants.append(FederatedModel(self.reader, aggregator, DATASET, self.DEVICE))
             participants[i].init_participant(global_model, i)
             test_loss, test_acc = participants[i].test_outcome()
             if DEFAULT_AGR == FANG:
@@ -401,7 +412,7 @@ class Organizer():
             logger.info("Participant {} initiated, loss={:.4f}, acc={:.4f}".format(i, test_loss, test_acc))
 
         # Initialize attacker
-        attacker = BlackBoxMalicious(self.reader, aggregator, DATASET)
+        attacker = BlackBoxMalicious(self.reader, aggregator, DATASET, self.DEVICE)
         # global model history
         global_model_lst = []
         global_model_loss_lst = []

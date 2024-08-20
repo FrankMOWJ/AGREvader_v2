@@ -8,13 +8,14 @@ class DataReader:
     The class to read data set from the given file
     """
     def __init__(self, data_set=CIFAR10, data_distribution='iid', label_column=LABEL_COL, batch_size=BATCH_SIZE,
-                reserved=0):
+                reserved=0, device='cuda:0'):
         """
         Load the data from the given data path
         :param path: the path of csv file to load data
         :param label_column: the column index of csv file to store the labels
         :param label_size: The number of overall classes in the given data set
         """
+        self.DEVICE = device
         # load the csv file
         self.data_set = data_set
         self.num_class = None
@@ -22,11 +23,11 @@ class DataReader:
             path = LOCATION30_PATH
             data_frame = pd.read_csv(path, header=None)
             # extract the label
-            self.labels = torch.tensor(data_frame[label_column].to_numpy(), dtype=torch.int64).to(DEVICE)
+            self.labels = torch.tensor(data_frame[label_column].to_numpy(), dtype=torch.int64).to(self.DEVICE)
             self.labels -= 1
             data_frame.drop(label_column, inplace=True, axis=1)
             # extract the data
-            self.data = torch.tensor(data_frame.to_numpy(), dtype=torch.float).to(DEVICE)
+            self.data = torch.tensor(data_frame.to_numpy(), dtype=torch.float).to(self.DEVICE)
             self.num_class = 30
         
         elif data_set == CIFAR10:
@@ -84,7 +85,7 @@ class DataReader:
             # MNIST有10个类别
             self.num_class = 10
         
-        elif data_set == FASHION_MINST:
+        elif data_set == FASHION_MNIST:
             transform = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize((0.5,), (0.5,))  # Fashion-MNIST是单通道，所以归一化只需要一个均值和标准差
@@ -111,14 +112,25 @@ class DataReader:
             
             # Fashion-MNIST有10个类别
             self.num_class = 10
-            
+          
+        elif data_set == PURCHASE100:
+            self.num_class = 100
+            data = np.load(PURCHASE100_PATH)
+            self.data = torch.tensor(data['features'], dtype=torch.float)
+            self.labels = torch.tensor(data['labels'], dtype=torch.int64)
 
+        elif data_set == TEXAS100:
+            self.num_class = 100
+            data = np.load(TEXAS100_PATH)
+            self.data = torch.tensor(data['features'], dtype=torch.float)
+            self.labels = torch.tensor(data['labels'], dtype=torch.int64)
+            self.labels = torch.argmax(self.labels, dim=1)
         else:
             raise ValueError(f'no dataset {data_set}')
 
         print(f'overall data shape: {self.data.shape}\noverall label shape: {self.labels.shape}')
-        self.data = self.data.to(DEVICE)
-        self.labels = self.labels.to(DEVICE)
+        self.data = self.data.to(self.DEVICE)
+        self.labels = self.labels.to(self.DEVICE)
         
         # # 打印前50个label -> shuffle过
         # for i in range(50):
@@ -141,11 +153,11 @@ class DataReader:
         overall_size -= reserved
         overall_size -= overall_size % batch_size
         # 生成一个长度为labels.size(0),范围为[0, label.size(0)]的无重复且打乱的序列
-        rand_perm = torch.randperm(self.labels.size(0)).to(DEVICE)
+        rand_perm = torch.randperm(self.labels.size(0)).to(self.DEVICE)
         self.reserve_set = rand_perm[overall_size:]
         print(f'cover dataset shape: {self.reserve_set.shape}')
-        rand_perm = rand_perm[:overall_size].to(DEVICE) #! 除去了coverset的下标
-        self.batch_indices = rand_perm.reshape((-1, batch_size)).to(DEVICE)
+        rand_perm = rand_perm[:overall_size].to(self.DEVICE) #! 除去了coverset的下标
+        self.batch_indices = rand_perm.reshape((-1, batch_size)).to(self.DEVICE)
         self.train_test_split()
 
         print("Data set "+data_set+
@@ -190,7 +202,7 @@ class DataReader:
         # 将noniid_train_set展开
         noniid_train_set = [sample for sublist in noniid_train_set for sample in sublist]
         # 将noniid_train_set转换为self.train_set的形状
-        noniid_train_set = torch.tensor(noniid_train_set).reshape(self.train_set.shape).to(DEVICE)
+        noniid_train_set = torch.tensor(noniid_train_set).reshape(self.train_set.shape).to(self.DEVICE)
     
         
         # print('######################################################################')
@@ -208,20 +220,20 @@ class DataReader:
         :param batch_training: True to train by batch, False will not
         :return: None
         """
-        if self.data_set == LOCATION30:
+        if self.data_set == LOCATION30 or self.data_set == PURCHASE100 or self.data_set == TEXAS100:
             if batch_training:
                 train_count = round(self.batch_indices.size(0) * ratio[0] / sum(ratio))
-                self.train_set = self.batch_indices[:train_count].to(DEVICE)
-                self.test_set = self.batch_indices[train_count:].to(DEVICE)
+                self.train_set = self.batch_indices[:train_count].to(self.DEVICE)
+                self.test_set = self.batch_indices[train_count:].to(self.DEVICE)
             else:
                 train_count = round(self.data.size(0) * ratio[0] / sum(ratio))
-                rand_perm = torch.randperm(self.data.size(0)).to(DEVICE)
-                self.train_set = rand_perm[:train_count].to(DEVICE)
-                self.test_set = rand_perm[train_count:].to(DEVICE)
-        elif self.data_set == CIFAR10 or self.data_set == MNIST or self.data_set == FASHION_MINST:
+                rand_perm = torch.randperm(self.data.size(0)).to(self.DEVICE)
+                self.train_set = rand_perm[:train_count].to(self.DEVICE)
+                self.test_set = rand_perm[train_count:].to(self.DEVICE)
+        elif self.data_set == CIFAR10 or self.data_set == MNIST or self.data_set == FASHION_MNIST:
             test_count = round(self.batch_indices.size(0) / 6.0) # train: 50000, test: 10000
-            self.test_set = self.batch_indices[:test_count].to(DEVICE)
-            self.train_set = self.batch_indices[test_count:].to(DEVICE)
+            self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
+            self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
 
     def get_train_set(self, participant_index=0):
         """
@@ -262,11 +274,20 @@ class DataReader:
         """
         member_count = round(attack_batch_size * member_rate)
         non_member_count = attack_batch_size - member_count
-        train_flatten = self.train_set.flatten().to(DEVICE)
-        test_flatten = self.test_set.flatten().to(DEVICE)
-        member_indices = train_flatten[torch.randperm(len(train_flatten))[:member_count]].to(DEVICE)
-        non_member_indices = test_flatten[torch.randperm((len(test_flatten)))[:non_member_count]].to(DEVICE)
-        result = torch.cat([member_indices, non_member_indices]).to(DEVICE)
-        result = result[torch.randperm(len(result))].to(DEVICE)
+        train_flatten = self.train_set.flatten().to(self.DEVICE)
+        test_flatten = self.test_set.flatten().to(self.DEVICE)
+        member_indices = train_flatten[torch.randperm(len(train_flatten))[:member_count]].to(self.DEVICE)
+        non_member_indices = test_flatten[torch.randperm((len(test_flatten)))[:non_member_count]].to(self.DEVICE)
+        result = torch.cat([member_indices, non_member_indices]).to(self.DEVICE)
+        result = result[torch.randperm(len(result))].to(self.DEVICE)
         # print(f'attack sample shape: {result.shape}\nmember sample shape: {member_indices.shape}')
         return result, member_indices, non_member_indices
+    
+if __name__ == "__main__":
+    data = np.load(TEXAS100_PATH)
+    print(f'{data.files}')
+    datas = torch.tensor(data['features'], dtype=torch.float)
+    labels = torch.tensor(data['labels'], dtype=torch.int64)
+    labels = torch.argmax(labels, dim=1)
+    
+    print(f'{datas.shape}, {labels.shape}')
