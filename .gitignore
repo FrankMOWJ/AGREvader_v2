@@ -11,3 +11,4 @@ test/
 results/
 CIFAR10_output_5/
 log*/
+datasets-master/
