@@ -15,9 +15,9 @@ C = 1.0 # 0.5
 
 # General hyper parameters for training
 MAX_EPOCH = 200 #Maximum number of epochs # 1000
-TRAIN_EPOCH = 30 #Number of epochs for training
+TRAIN_EPOCH = 0 #Number of epochs for training
 BATCH_SIZE = 64 #Batch size for training
-RESERVED_SAMPLE = 500 #Number of sample for covering attack # origin 300
+RESERVED_SAMPLE = 300 #Number of sample for covering attack # origin 300
 INIT_MODE = PYTORCH_INIT # Initialisation mode
 BATCH_TRAINING = True #Batch training or not
 

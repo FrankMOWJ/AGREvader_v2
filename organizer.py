@@ -491,13 +491,13 @@ class Organizer():
                     ATTACK_ROUND.append(j)
                     if ATTACK == 'angle':
                         print('angle attack')
-                        attacker.blackbox_attack_angle(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, try_times=TRY_TIMES)
+                        attacker.blackbox_attack_angle(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, try_times=TRY_TIMES, logger=logger) #TODO  添加logger   
                     elif ATTACK == 'unit':
                         print('unitnorm attack')
-                        attacker.blackbox_attack_unit(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
+                        attacker.blackbox_attack_unit(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, logger=logger)
                     elif ATTACK == 'norm':
                         print('norm attack')
-                        attacker.blackbox_attack_norm(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
+                        attacker.blackbox_attack_norm(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, logger=logger)
                     elif ATTACK == 'cos':
                         print('cos attack')
                         attacker.blackbox_attack_cos(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)

@@ -5,6 +5,7 @@ from aggregator import *
 from data_reader import DataReader
 import numpy as np
 from torch import nn
+from copy import deepcopy
 
 
 
@@ -209,6 +210,8 @@ class TargetModel:
         self.loss_function = torch.nn.CrossEntropyLoss().to(self.DEVICE)
         # learning rate keeps default value 0.001
         self.optimizer = torch.optim.Adam(self.model.parameters())
+        # self.optimizer = torch.optim.Adamax(self.model.parameters())
+        # self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001)
 
         # Initialize recorder
         self.train_loss = -1
@@ -226,17 +229,17 @@ class TargetModel:
         self.test_set = self.data_reader.get_test_set(self.participant_index).to(self.DEVICE)
         
         
-        print('**************************************')
-        print(f'par{self.participant_index}')
-        # 统计trian_set对应下标，中各label的数量
-        labels = {i: 0 for i in range(self.data_reader.num_class)}
-        for batch in self.train_set:
-            for indice in batch:
-                label = self.data_reader.labels[indice] #! self.data_reader.labels[indice]
-                labels[int(label)] += 1
-        for i in range(10):
-            print(f'label {i}: {labels[i]}')
-        print('**************************************')
+        # print('**************************************')
+        # print(f'par{self.participant_index}')
+        # # 统计trian_set对应下标，中各label的数量
+        # labels = {i: 0 for i in range(self.data_reader.num_class)}
+        # for batch in self.train_set:
+        #     for indice in batch:
+        #         label = self.data_reader.labels[indice] #! self.data_reader.labels[indice]
+        #         labels[int(label)] += 1
+        # for i in range(10):
+        #     print(f'label {i}: {labels[i]}')
+        # print('**************************************')
         
 
 
@@ -516,9 +519,11 @@ class BlackBoxMalicious(FederatedModel):
         self.load_parameters(cache)
         # !! cover sample
         candidate_cover_samples = self.data_reader.reserve_set #cover samples
-        rand_indices = torch.randperm(candidate_cover_samples.size(0))
-        selected_indices = rand_indices[:320]
-        cover_samples = candidate_cover_samples[selected_indices]
+        # rand_indices = torch.randperm(candidate_cover_samples.size(0))
+        # selected_indices = rand_indices[:320]
+        # cover_samples = candidate_cover_samples[selected_indices]
+        cover_samples = candidate_cover_samples
+        
         i = 0
         while i * batch_size < len(cover_samples):
             batch_index = cover_samples[i * batch_size:(i + 1) * batch_size]
@@ -540,7 +545,7 @@ class BlackBoxMalicious(FederatedModel):
 
         return gradient
 
-    def blackbox_attack_norm(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None):
+    def blackbox_attack_norm(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, logger=None):
         """
         Optimized shuffle label attack
         :param cover_factor: Cover factor of the gradient of cover samples
@@ -553,20 +558,152 @@ class BlackBoxMalicious(FederatedModel):
         for i in range(len(grad_honest)):
             for j in range(i+1, len(grad_honest)):
                 max_honest_diff = max(max_honest_diff, torch.norm(grad_honest[i] - grad_honest[j]))
-        # 获得poison梯度
+                
+        # for grad in grad_honest:
+        #     with open('norm_log_2/grad_honest.txt', 'a') as f:
+        #         f.write(f'{grad}\n{torch.norm(grad)}\n\n')
+        # with open('norm_log_2/grad_honest.txt', 'a') as f:
+        #         f.write('************************')
+                
+                
         cache = self.get_flatten_parameters()
+        # state_cache = self.model.state_dict()
+        opt_cache = deepcopy(self.optimizer.state_dict())
+        
         out = self.model(self.batch_x)
-        loss = self.loss_function(out, self.shuffled_y) # compute loss with shuffled labels
+        loss = self.loss_function(out, self.shuffled_y)  # compute loss with shuffled labels
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        gradient = self.get_flatten_parameters() - cache
+        
+        vic_gradient = self.get_flatten_parameters() - cache
+        # flattened_gradients = torch.cat([param.grad.flatten() for param in self.model.parameters() if param.grad is not None])
+        # vic_gradient = flattened_gradients.clone()
+        
+        # with open('norm_log_2/grad_vic.txt', 'a') as f:
+        #     f.write(f'{vic_gradient}\n{torch.norm(vic_gradient)}\n\n')
+        
+        # self.model.load_state_dict(state_cache)  # 恢复模型状态
         self.load_parameters(cache)
+        self.optimizer.load_state_dict(opt_cache)
+
+        
 
         # 获得cover梯度
-        candidate_cover_samples = self.data_reader.reserve_set # candidate cover set (len: 530)
+        candidate_cover_samples : list = self.data_reader.reserve_set # candidate cover set (len: 530)
+        # 将candidate_cover_samples打乱
+        # print(candidate_cover_samples)
+        # rand_indices = torch.randperm(len(candidate_cover_samples))
+        # candidate_cover_samples = candidate_cover_samples[rand_indices]
+        # print('##################################')
+        # print(candidate_cover_samples)
+        
+        
+
         cur_max_agrEvader_grad = None
         # 选取其中的300个作为本轮的cover set
+        
+        # TODO 在这里修改
+        # 对每个cov中的样本单独计算梯度并保存
+        # single_cover_gradient = torch.zeros(0).to(self.DEVICE)
+        single_cover_gradient = []
+        for sample in candidate_cover_samples:
+            x, y = self.data_reader.get_batch(sample)
+            x = x.unsqueeze(0)
+            y = y.unsqueeze(0)
+            out = self.model(x)
+            loss = self.loss_function(out, y)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            
+            single_cover_gradient.append(self.get_flatten_parameters() - cache)
+            # single_cover_gradient.append( torch.cat([param.grad.flatten() for param in self.model.parameters() if param.grad is not None]) )
+
+            # self.model.load_state_dict(state_cache)  # 恢复模型状态
+            self.load_parameters(cache)
+            self.optimizer.load_state_dict(opt_cache)
+            
+        
+        single_cover_gradient = torch.stack(single_cover_gradient)
+        
+        # for i, grad_cover in enumerate(single_cover_gradient):
+        #     with open('norm_log_2/grad_cover.txt', 'a') as f:
+        #         f.write(f'cov_{i}: {grad_cover}\n{torch.norm(grad_cover)}\n\n')
+        # with open('norm_log_2/grad_cover.txt', 'a') as f:
+        #      f.write('************************\n\n')   
+        
+        # print(f'single_cover_gradient={len(single_cover_gradient)}')
+        # print(f'candidate_cover_samples={len(candidate_cover_samples)}')
+        assert len(single_cover_gradient)==len(candidate_cover_samples)
+        
+        # 每一轮挑选一个最好的梯度
+        selected_grad_index = []
+        selected_grad = []
+        best_agr_grad = torch.zeros(0).to(self.DEVICE)
+        
+        gradient = None
+        indices = None
+        
+        for j in range(5):
+            
+            # selected_grad_index = []
+            cur_max_agrEvader_grad = torch.zeros(0).to(self.DEVICE)
+            # best_agr_grad = torch.zeros(0).to(self.DEVICE)
+            index = None
+            gradient = None
+            
+            for i, g in enumerate(single_cover_gradient):
+                if i in selected_grad_index:
+                    continue
+                # 组合cover和poison
+                if len(selected_grad_index) == 0:
+                    # gradient, indices = select_by_threshold(g*cover_factor+vic_gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
+                    gradient = g*cover_factor+vic_gradient
+                else:
+                    selected_grad_temp = torch.stack(selected_grad)
+                    g_cov = ((torch.sum(selected_grad_temp, dim=0) + g)/(len(selected_grad)+1))
+                    # gradient, indices = select_by_threshold(g_cov*cover_factor+vic_gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
+                    gradient = g_cov*cover_factor+vic_gradient
+                # limitation
+                max_diff = 0.0
+                for k in range(len(grad_honest)):
+                    max_diff = max(torch.norm(gradient - grad_honest[k]), max_diff)
+
+                if max_diff <= max_honest_diff and  torch.norm(gradient) > torch.norm(cur_max_agrEvader_grad):
+                    cur_max_agrEvader_grad = gradient
+                    index = i
+                    
+                    
+            if cur_max_agrEvader_grad.numel() != 0:
+                # print(f'*****************************')
+                # print('find a satisfied gradient!')
+                # print(f'*****************************')
+                selected_grad_index.append(index)
+                # selected_grad = torch.cat([selected_grad, single_cover_gradient[index]], dim=0)
+                selected_grad.append(single_cover_gradient[index])
+                best_agr_grad = cur_max_agrEvader_grad if torch.norm(cur_max_agrEvader_grad) > torch.norm(best_agr_grad) else best_agr_grad
+            # print(f'*****************************')
+            # print(f'index={index}')
+            # print(f'*****************************')
+        # print(f'*****************************')
+        # print(selected_grad_index)
+        # print(f'*****************************')
+        logger.info(f'selected grad index: {selected_grad_index}')
+                
+            
+        # print(f'selected_grad: {selected_grad}, len: {len(selected_grad)}')
+        if best_agr_grad.numel() == 0:
+            self.aggregator.collect(vic_gradient, indices)
+            print('return vic gradient')
+            return vic_gradient
+        else:
+            self.aggregator.collect(best_agr_grad, indices)
+            print('return agr gradient')
+            return best_agr_grad
+
+
+        '''
         for _ in range(5):
         # while True:
             rand_indices = torch.randperm(candidate_cover_samples.size(0))
@@ -613,6 +750,8 @@ class BlackBoxMalicious(FederatedModel):
             self.aggregator.collect(cur_max_agrEvader_grad, indices)
             return cur_max_agrEvader_grad
         '''
+
+        '''
         if cur_max_agrEvader_grad == None and self.best_AGREvader_grad == None:
             # raise ValueError("attack not find AGREvader gradient!")
             self.aggregator.collect(gradient, indices)
@@ -634,7 +773,7 @@ class BlackBoxMalicious(FederatedModel):
         return self.best_AGREvader_grad*/
         '''
         
-    def blackbox_attack_unit(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None):
+    def blackbox_attack_unit(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, logger=None):
         """
         Optimized shuffle label attack
         :param cover_factor: Cover factor of the gradient of cover samples
@@ -649,20 +788,128 @@ class BlackBoxMalicious(FederatedModel):
                 grad_i = grad_honest[i] / torch.norm(grad_honest[i], p=2)
                 grad_j = grad_honest[j] / torch.norm(grad_honest[j], p=2)
                 max_honest_diff = max(max_honest_diff, torch.norm(grad_i - grad_j))
+                
         # 获得poison梯度
         cache = self.get_flatten_parameters()
+        op_cache = deepcopy(self.optimizer.state_dict())
+        
         out = self.model(self.batch_x)
         loss = self.loss_function(out, self.shuffled_y) # compute loss with shuffled labels
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        gradient = self.get_flatten_parameters() - cache
+        
+        vic_gradient = self.get_flatten_parameters() - cache
+        
         self.load_parameters(cache)
+        self.optimizer.load_state_dict(op_cache)
 
         # 获得cover梯度
         candidate_cover_samples = self.data_reader.reserve_set # candidate cover set (len: 530)
         cur_max_agrEvader_grad = None
         # 选取其中的300个作为本轮的cover set
+        
+        single_cover_gradient = []
+        for sample in candidate_cover_samples:
+            x, y = self.data_reader.get_batch(sample)
+            x = x.unsqueeze(0)
+            y = y.unsqueeze(0)
+            out = self.model(x)
+            loss = self.loss_function(out, y)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            
+            single_cover_gradient.append(self.get_flatten_parameters() - cache)
+            
+            self.load_parameters(cache)
+            self.optimizer.load_state_dict(op_cache)
+        
+        single_cover_gradient = torch.stack(single_cover_gradient)
+        
+        # print(f'single_cover_gradient={len(single_cover_gradient)}')
+        # print(f'candidate_cover_samples={len(candidate_cover_samples)}')
+        assert len(single_cover_gradient)==len(candidate_cover_samples)
+        
+        # 每一轮挑选一个最好的梯度
+        selected_grad_index = []
+        selected_grad = []
+        best_agr_grad = torch.zeros(0).to(self.DEVICE)
+        
+        gradient = None
+        indices = None
+        
+        for j in range(5):
+            
+            # selected_grad_index = []
+            cur_max_agrEvader_grad = torch.zeros(0).to(self.DEVICE)
+            # best_agr_grad = torch.zeros(0).to(self.DEVICE)
+            index = None
+            gradient = None
+            
+            for i, g in enumerate(single_cover_gradient):
+                # # 将每一个cover梯度写入文件
+                with open('cover_grad.txt', 'a') as f:
+                    f.write(f'{j}_{i}: {torch.norm(g)}\n')
+                if i in selected_grad_index:
+                    continue
+                # 组合cover和poison
+                if len(selected_grad_index) == 0:
+                    # gradient, indices = select_by_threshold(g*cover_factor+vic_gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
+                    gradient = g*cover_factor+vic_gradient 
+                else:
+                    selected_grad_temp = torch.stack(selected_grad)
+                    g_cov = ((torch.sum(selected_grad_temp, dim=0) + g)/(len(selected_grad)+1))
+                    # gradient, indices = select_by_threshold(g_cov*cover_factor+vic_gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
+                    gradient = g_cov*cover_factor+vic_gradient
+                # limitation
+                max_diff = 0.0
+                for k in range(len(grad_honest)):
+                     max_diff = max(torch.norm(gradient / torch.norm(gradient, p=2) - grad_honest[k] / torch.norm(grad_honest[k], p=2)), max_diff)
+                # print(f'max_honest_diff={max_honest_diff}, max_diff={max_diff}')
+                # 将max_diff 写入文件
+                with open('max_diff.txt', 'a') as f:
+                    f.write(f'{j}_{i}: {max_diff} *** {max_honest_diff}\n')
+                    
+                with open('norm.txt', 'a') as f:
+                    f.write(f'{j}_{i}: {torch.norm(gradient)} *** {torch.norm(cur_max_agrEvader_grad)}\n')
+
+                if max_diff <= max_honest_diff and  torch.norm(gradient) > torch.norm(cur_max_agrEvader_grad):
+
+                    cur_max_agrEvader_grad = gradient
+                    index = i
+                    
+                    
+            if cur_max_agrEvader_grad.numel() != 0:
+                # print(f'*****************************')
+                # print('find a satisfied gradient!')
+                # print(f'*****************************')
+                selected_grad_index.append(index)
+                selected_grad.append(single_cover_gradient[index])
+                best_agr_grad = cur_max_agrEvader_grad if torch.norm(cur_max_agrEvader_grad) > torch.norm(best_agr_grad) else best_agr_grad
+            else:
+                # print('no satisfied gradient!!')
+                break
+            # print(f'*****************************')
+            # print(f'index={index}')
+            # print(f'*****************************')
+        # print(f'*****************************')
+        # print(selected_grad_index)
+        # print(f'*****************************')
+        logger.info(f'selected grad index: {selected_grad_index}')
+            
+        # print(f'selected_grad: {selected_grad}, len: {len(selected_grad)}')
+        if best_agr_grad.numel() == 0:
+            self.aggregator.collect(vic_gradient, indices)
+            print('return vic gradient')
+            return vic_gradient
+        else:
+            self.aggregator.collect(best_agr_grad, indices)
+            print('return agr gradient')
+            return best_agr_grad
+
+        
+        '''
         for _ in range(5):
         # while True:
             rand_indices = torch.randperm(candidate_cover_samples.size(0))
@@ -710,26 +957,31 @@ class BlackBoxMalicious(FederatedModel):
             self.aggregator.collect(cur_max_agrEvader_grad, indices)
             # self.aggregator.collect(cur_max_agrEvader_grad / torch.norm(cur_max_agrEvader_grad), indices)
             return cur_max_agrEvader_grad
-
+        '''
+        
     def get_angle(self, gradA: torch.Tensor, gradB: torch.Tensor):
-        dot_product = torch.dot(gradA, gradB)
+        # dot_product = torch.dot(gradA, gradB)
+        dot_product = torch.dot(gradA.view(-1), gradB.view(-1))
         norm_A = torch.norm(gradA, p=2)
         norm_B = torch.norm(gradB, p=2)
         cos_theta = dot_product / (norm_A * norm_B)
         theta = torch.acos(cos_theta)
-        theta_degrees = np.degrees(theta.cpu().numpy())
+        # theta_degrees = np.degrees(theta.cpu().numpy())
+        theta_degrees = torch.rad2deg(theta)
+
 
         return theta_degrees
     
     def get_cos(self, gradA: torch.Tensor, gradB: torch.Tensor):
-        dot_product = torch.dot(gradA, gradB)
+        # dot_product = torch.dot(gradA, gradB)
+        dot_product = torch.dot(gradA.view(-1), gradB.view(-1))
         norm_A = torch.norm(gradA, p=2)
         norm_B = torch.norm(gradB, p=2)
         cos_theta = dot_product / (norm_A * norm_B)
 
         return cos_theta
 
-    def blackbox_attack_angle(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, try_times=5):
+    def blackbox_attack_angle(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, try_times=5, logger=None):
         """
         Optimized shuffle label attack
         :param cover_factor: Cover factor of the gradient of cover samples
@@ -738,29 +990,175 @@ class BlackBoxMalicious(FederatedModel):
         """
         # assert len(grad_honest) == NUMBER_OF_PARTICIPANTS, "honest gradient have not fully collected!"
         # 获取max_honest_diff
-        max_honest_angle_diff = 0.0
+        max_honest_diff = 0.0
         for i in range(len(grad_honest)):
             for j in range(i+1, len(grad_honest)):
                 theta_degrees = self.get_angle(grad_honest[i], grad_honest[j])
-                max_honest_angle_diff = max(max_honest_angle_diff, theta_degrees)
-        # 获得poison梯度
+                max_honest_diff = max(max_honest_diff, theta_degrees)
+                
+        # for grad in grad_honest:
+        #     with open('angle_log_2/grad_honest.txt', 'a') as f:
+        #             f.write(f'{grad}\n{torch.norm(grad)}\n\n')
+        #     with open('angle_log_2/grad_honest.txt', 'a') as f:
+        #             f.write('************************')
+                
         cache = self.get_flatten_parameters()
+        # state_cache = self.model.state_dict()
+        opt_cache = deepcopy(self.optimizer.state_dict())
+        
         out = self.model(self.batch_x)
-        loss = self.loss_function(out, self.shuffled_y) # compute loss with shuffled labels
+        loss = self.loss_function(out, self.shuffled_y)  # compute loss with shuffled labels
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        gradient = self.get_flatten_parameters() - cache
-        # # get last lineat layer parameteres
-        # fc_params = self.get_fc_flatten_parameters()
-        # # only poison the fc layer
-        # gradient[:-len(fc_params)] = cache[:-len(fc_params)]
+        
+        vic_gradient = self.get_flatten_parameters() - cache
+        # flattened_gradients = torch.cat([param.grad.flatten() for param in self.model.parameters() if param.grad is not None])
+        # vic_gradient = flattened_gradients.clone()
+        
+        # with open('angle_log_2/grad_vic.txt', 'a') as f:
+        #     f.write(f'{vic_gradient}\n{torch.norm(vic_gradient)}\n\n')
+        
+        # self.model.load_state_dict(state_cache)  # 恢复模型状态
         self.load_parameters(cache)
+        self.optimizer.load_state_dict(opt_cache) 
+
 
         # 获得cover梯度
         candidate_cover_samples = self.data_reader.reserve_set # candidate cover set (len: 530)
         cur_max_agrEvader_grad = None
-        # 选取其中的300个作为本轮的cover set
+        
+        single_cover_gradient = []
+        for sample in candidate_cover_samples:
+            x, y = self.data_reader.get_batch(sample)
+            x = x.unsqueeze(0)
+            y = y.unsqueeze(0)
+            out = self.model(x)
+            loss = self.loss_function(out, y)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            
+            single_cover_gradient.append(self.get_flatten_parameters() - cache)
+            # single_cover_gradient.append( torch.cat([param.grad.flatten() for param in self.model.parameters() if param.grad is not None]) )
+
+            # self.model.load_state_dict(state_cache)  # 恢复模型状态
+            self.load_parameters(cache)
+            self.optimizer.load_state_dict(opt_cache)
+            
+        single_cover_gradient = torch.stack(single_cover_gradient)
+        
+        # for i, grad_cover in enumerate(single_cover_gradient):
+        #     with open('angle_log_2/grad_cover.txt', 'a') as f:
+        #         f.write(f'cov_{i}: {grad_cover}\n{torch.norm(grad_cover)}\n\n')
+        # with open('angle_log_2/grad_cover.txt', 'a') as f:
+        #      f.write('************************\n\n')   
+        
+        # print(f'single_cover_gradient={len(single_cover_gradient)}')
+        # print(f'candidate_cover_samples={len(candidate_cover_samples)}')
+        assert len(single_cover_gradient)==len(candidate_cover_samples)
+        
+        
+        # # 计算每个cover_gradient和vic_gradient的夹角并写入文件
+        # for i, g in enumerate(single_cover_gradient):
+        #     theta_degrees = self.get_angle(g, vic_gradient)
+        #     with open('./angle_log_2/cov_vic_angle.txt', 'a') as f:
+        #         f.write(f'{i}: {theta_degrees}\n')
+        #         
+        #     # 计算每个cover_gradient和vic_gradient的norm并写入文件
+        #     with open('./angle_log_2/cov_vic_norm.txt', 'a') as f:
+        #         f.write(f'{i}: cov: {torch.norm(g)} *** vic: {torch.norm(vic_gradient)}\n')
+        #         
+        #     # 计算vic_gradient和honest_gradient的夹角并写入文件
+        #     with open('./angle_log_2/vic_honest_angle.txt', 'a') as f:
+        #         for k in range(len(grad_honest)):
+        #             theta_degrees = self.get_angle(vic_gradient, grad_honest[k])
+        #             f.write(f'{i}_{k}: {theta_degrees}\n')
+        #     
+        # # 计算cover_gradient和honest_gradient的夹角并写入文件    
+        # with open('./angle_log_2/cov_honest_angle.txt', 'a') as f:
+        #     for k in range(len(grad_honest)):
+        #         theta_degrees = self.get_angle(g, grad_honest[k])
+        #         f.write(f'{i}_{k}: {theta_degrees}\n')
+                    
+        
+        # 每一轮挑选一个最好的梯度
+        selected_grad_index = []
+        selected_grad = []
+        best_agr_grad = torch.zeros(0).to(self.DEVICE)
+        
+        gradient = None
+        indices = None
+        
+        for j in range(5):
+            
+            # selected_grad_index = []
+            cur_max_agrEvader_grad = torch.zeros(0).to(self.DEVICE)
+            # best_agr_grad = torch.zeros(0).to(self.DEVICE)
+            index = None
+            gradient = None
+            
+            for i, g in enumerate(single_cover_gradient):
+                # # 将每一个cover梯度写入文件
+                # with open('./angle_log_2/cover_grad.txt', 'a') as f:
+                #     f.write(f'{j}_{i}: {torch.norm(g)}\n')
+                if i in selected_grad_index:
+                    continue
+                # 组合cover和poison
+                if len(selected_grad_index) == 0:
+                    # gradient, indices = select_by_threshold(g*cover_factor+vic_gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
+                    gradient = g*cover_factor+vic_gradient
+                else:
+                    selected_grad_temp = torch.stack(selected_grad)
+                    g_cov = ((torch.sum(selected_grad_temp, dim=0) + g)/(len(selected_grad)+1))
+                    # gradient, indices = select_by_threshold(g_cov*cover_factor+vic_gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
+                    gradient = g_cov*cover_factor+vic_gradient
+                # limitation
+                # gradient = gradient + grad_honest[0]
+                
+                max_diff = 0.0
+                for k in range(len(grad_honest)):
+                    theta = self.get_angle(gradient, grad_honest[k])
+                    max_diff = max(theta, max_diff)
+                # print(f'max_honest_diff={max_honest_diff}, max_diff={max_diff}')
+                # 将max_diff 写入文件
+                # with open('./angle_log_2/max_diff.txt', 'a') as f:
+                #     f.write(f'{j}_{i}: {max_diff} *** {max_honest_diff}\n')
+                #     
+                # with open('./angle_log_2/norm.txt', 'a') as f:
+                #     f.write(f'{j}_{i}: {torch.norm(gradient)} *** {torch.norm(cur_max_agrEvader_grad)}\n')
+
+                if max_diff <= max_honest_diff and  torch.norm(gradient) > torch.norm(cur_max_agrEvader_grad):
+
+                    cur_max_agrEvader_grad = gradient
+                    index = i
+                    
+            if cur_max_agrEvader_grad.numel() != 0:
+                # print(f'*****************************')
+                # print('find a satisfied gradient!')
+                # print(f'*****************************')
+                selected_grad_index.append(index)
+                selected_grad.append(single_cover_gradient[index])
+                best_agr_grad = cur_max_agrEvader_grad if torch.norm(cur_max_agrEvader_grad) > torch.norm(best_agr_grad) else best_agr_grad
+            # print(f'*****************************')
+            # print(f'index={index}')
+            # print(f'*****************************')
+        # print(f'*****************************')
+        # print(selected_grad_index)
+        # print(f'*****************************')
+        logger.info(f'selected grad index: {selected_grad_index}')
+            
+        # print(f'selected_grad: {selected_grad}, len: {len(selected_grad)}')
+        if best_agr_grad.numel() == 0:
+            self.aggregator.collect(vic_gradient, indices)
+            print('return vic gradient')
+            return vic_gradient
+        else:
+            self.aggregator.collect(best_agr_grad, indices)
+            print('return agr gradient')
+            return best_agr_grad
+        
+        '''
         history_max_diff = 0.0
         for _ in range(try_times):
             rand_indices = torch.randperm(candidate_cover_samples.size(0))
@@ -811,8 +1209,9 @@ class BlackBoxMalicious(FederatedModel):
             # self.aggregator.collect(cur_max_agrEvader_grad / torch.norm(cur_max_agrEvader_grad), indices)
             self.aggregator.collect(cur_max_agrEvader_grad, indices)
             return cur_max_agrEvader_grad
-
-    def blackbox_attack_cos(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None):
+        '''
+        
+    def blackbox_attack_cos(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None): 
         """
         Optimized shuffle label attack
         :param cover_factor: Cover factor of the gradient of cover samples
