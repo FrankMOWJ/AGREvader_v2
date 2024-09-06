@@ -959,17 +959,40 @@ class BlackBoxMalicious(FederatedModel):
             return cur_max_agrEvader_grad
         '''
         
-    def get_angle(self, gradA: torch.Tensor, gradB: torch.Tensor):
-        # dot_product = torch.dot(gradA, gradB)
-        dot_product = torch.dot(gradA.view(-1), gradB.view(-1))
-        norm_A = torch.norm(gradA, p=2)
-        norm_B = torch.norm(gradB, p=2)
-        cos_theta = dot_product / (norm_A * norm_B)
-        theta = torch.acos(cos_theta)
-        # theta_degrees = np.degrees(theta.cpu().numpy())
-        theta_degrees = torch.rad2deg(theta)
+    def get_angle(self, gradA, gradB):
+        if isinstance(gradA, torch.Tensor) and isinstance(gradB, torch.Tensor):
+            # 将 gradA 和 gradB 展平为 1D 向量
+            dot_product = torch.dot(gradA.view(-1), gradB.view(-1))
+            norm_A = torch.norm(gradA, p=2)
+            norm_B = torch.norm(gradB, p=2)
+            
+            # 计算余弦相似度
+            cos_theta = dot_product / (norm_A * norm_B)
+            # 使用 clip 限制 cos_theta 的范围，防止浮点数误差
+            cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
+            
+            # 计算夹角（弧度），并转换为角度
+            theta = torch.acos(cos_theta)
+            theta_degrees = torch.rad2deg(theta)
 
+        elif isinstance(gradA, np.ndarray) and isinstance(gradB, np.ndarray):
+            # 计算 NumPy 向量的点积和范数
+            dot_product = np.dot(gradA.flatten(), gradB.flatten())
+            norm_A = np.linalg.norm(gradA)
+            norm_B = np.linalg.norm(gradB)
+            
+            # 计算余弦相似度
+            cos_theta = dot_product / (norm_A * norm_B)
+            # 使用 clip 限制 cos_theta 的范围，防止浮点数误差
+            cos_theta = np.clip(cos_theta, -1.0, 1.0)
+            
+            # 计算夹角（弧度），并转换为角度
+            theta = np.arccos(cos_theta)
+            theta_degrees = np.degrees(theta)
 
+        else:
+            raise ValueError('Input should be either torch.Tensor or numpy.ndarray')
+        
         return theta_degrees
     
     def get_cos(self, gradA: torch.Tensor, gradB: torch.Tensor):
@@ -981,6 +1004,36 @@ class BlackBoxMalicious(FederatedModel):
 
         return cos_theta
 
+    def optimize_cover_factor(self, vic_gradient, cover_gradient, honest_max_diff, honest_grad_lst):
+            vic_gradient = vic_gradient.detach().cpu().numpy()
+            cover_gradient = cover_gradient.detach().cpu().numpy()
+            honest_grad_lst = [honest_grad.detach().cpu().numpy() for honest_grad in honest_grad_lst]
+            honest_max_diff = honest_max_diff.cpu().numpy()
+            # print(f'{vic_gradient.device}, {cover_gradient.device}, {honest_grad_lst[0].device}')
+            assert isinstance(vic_gradient, np.ndarray)
+            assert isinstance(cover_gradient, np.ndarray)
+            assert isinstance(honest_grad_lst[0], np.ndarray)
+
+            def objective(cover_factor, g, vic_gradient):
+                gradient = g * cover_factor + vic_gradient
+                return -np.linalg.norm(gradient)  # 最大化 norm，因此最小化其负值
+
+            def constraint(cover_factor, g, vic_gradient, honest_max_diff, honest_grad_lst):
+                gradient = g * cover_factor + vic_gradient
+                agr_honest_max_diff = 0.0
+                for honest_grad in honest_grad_lst:
+                    agr_honest_max_diff = max(self.get_angle(gradient, honest_grad), agr_honest_max_diff)
+                return honest_max_diff - agr_honest_max_diff  # 确保 agr_honest_max_diff < honest_max_diff
+
+            # 优化 cover_factor，添加约束
+            bounds = [(0, 1)]  # 限制 cover_factor 在 [0, 1] 之间
+            cons = {'type': 'ineq', 'fun': constraint, 'args': (cover_gradient, vic_gradient, honest_max_diff, honest_grad_lst)}
+
+            result = minimize(objective, x0=[0.5], args=(cover_gradient, vic_gradient), bounds=bounds, constraints=cons)
+
+            optimal_cover_factor = result.x[0]
+            return optimal_cover_factor
+    
     def blackbox_attack_angle(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, try_times=5, logger=None):
         """
         Optimized shuffle label attack
@@ -1083,9 +1136,11 @@ class BlackBoxMalicious(FederatedModel):
                     
         
         # 每一轮挑选一个最好的梯度
+        actual_selected_index = []
         selected_grad_index = []
         selected_grad = []
         best_agr_grad = torch.zeros(0).to(self.DEVICE)
+        best_g_cov = None
         
         gradient = None
         indices = None
@@ -1097,22 +1152,21 @@ class BlackBoxMalicious(FederatedModel):
             # best_agr_grad = torch.zeros(0).to(self.DEVICE)
             index = None
             gradient = None
+            g_cov = None
             
             for i, g in enumerate(single_cover_gradient):
-                # # 将每一个cover梯度写入文件
-                # with open('./angle_log_2/cover_grad.txt', 'a') as f:
-                #     f.write(f'{j}_{i}: {torch.norm(g)}\n')
                 if i in selected_grad_index:
                     continue
                 # 组合cover和poison
                 if len(selected_grad_index) == 0:
                     # gradient, indices = select_by_threshold(g*cover_factor+vic_gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
-                    gradient = g*cover_factor+vic_gradient
+                    g_cov = g
+                    gradient = g_cov * cover_factor + vic_gradient
                 else:
                     selected_grad_temp = torch.stack(selected_grad)
                     g_cov = ((torch.sum(selected_grad_temp, dim=0) + g)/(len(selected_grad)+1))
                     # gradient, indices = select_by_threshold(g_cov*cover_factor+vic_gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
-                    gradient = g_cov*cover_factor+vic_gradient
+                    gradient = g_cov * cover_factor + vic_gradient
                 # limitation
                 # gradient = gradient + grad_honest[0]
                 
@@ -1120,14 +1174,6 @@ class BlackBoxMalicious(FederatedModel):
                 for k in range(len(grad_honest)):
                     theta = self.get_angle(gradient, grad_honest[k])
                     max_diff = max(theta, max_diff)
-                # print(f'max_honest_diff={max_honest_diff}, max_diff={max_diff}')
-                # 将max_diff 写入文件
-                # with open('./angle_log_2/max_diff.txt', 'a') as f:
-                #     f.write(f'{j}_{i}: {max_diff} *** {max_honest_diff}\n')
-                #     
-                # with open('./angle_log_2/norm.txt', 'a') as f:
-                #     f.write(f'{j}_{i}: {torch.norm(gradient)} *** {torch.norm(cur_max_agrEvader_grad)}\n')
-
                 if max_diff <= max_honest_diff and  torch.norm(gradient) > torch.norm(cur_max_agrEvader_grad):
 
                     cur_max_agrEvader_grad = gradient
@@ -1139,7 +1185,12 @@ class BlackBoxMalicious(FederatedModel):
                 # print(f'*****************************')
                 selected_grad_index.append(index)
                 selected_grad.append(single_cover_gradient[index])
-                best_agr_grad = cur_max_agrEvader_grad if torch.norm(cur_max_agrEvader_grad) > torch.norm(best_agr_grad) else best_agr_grad
+                if torch.norm(cur_max_agrEvader_grad) > torch.norm(best_agr_grad):
+                    best_agr_grad = cur_max_agrEvader_grad 
+                    actual_selected_index.append(index) 
+                    gradient_dict = {}
+                    best_g_cov = deepcopy(g_cov)
+                    # print(f'g cover type: {type(g_cov)}, best g cover type: {type(best_g_cov)}')
             # print(f'*****************************')
             # print(f'index={index}')
             # print(f'*****************************')
@@ -1147,6 +1198,7 @@ class BlackBoxMalicious(FederatedModel):
         # print(selected_grad_index)
         # print(f'*****************************')
         logger.info(f'selected grad index: {selected_grad_index}')
+        logger.info(f'actual selected grad index: {actual_selected_index}')
             
         # print(f'selected_grad: {selected_grad}, len: {len(selected_grad)}')
         if best_agr_grad.numel() == 0:
@@ -1154,6 +1206,10 @@ class BlackBoxMalicious(FederatedModel):
             print('return vic gradient')
             return vic_gradient
         else:
+            # optimize cover_factor
+            optimal_cover_factor = self.optimize_cover_factor(vic_gradient, best_g_cov, max_honest_diff, grad_honest)
+            logger.info(f'cover factor is optimized from 0.5 to {optimal_cover_factor}')
+            best_agr_grad = optimal_cover_factor * best_g_cov + vic_gradient
             self.aggregator.collect(best_agr_grad, indices)
             print('return agr gradient')
             return best_agr_grad
