@@ -442,10 +442,6 @@ class FederatedModel(TargetModel):
         to_load[indices] = parameter[indices]
         self.load_parameters(to_load)
 
-
-
-
-
 class BlackBoxMalicious(FederatedModel):
     """
     Representing the malicious participant trying to perform a black-box membership inference attack
@@ -638,9 +634,11 @@ class BlackBoxMalicious(FederatedModel):
         assert len(single_cover_gradient)==len(candidate_cover_samples)
         
         # 每一轮挑选一个最好的梯度
+        actual_selected_index = []
         selected_grad_index = []
         selected_grad = []
         best_agr_grad = torch.zeros(0).to(self.DEVICE)
+        best_g_cov = None
         
         gradient = None
         indices = None
@@ -659,6 +657,7 @@ class BlackBoxMalicious(FederatedModel):
                 # 组合cover和poison
                 if len(selected_grad_index) == 0:
                     # gradient, indices = select_by_threshold(g*cover_factor+vic_gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
+                    g_cov = g
                     gradient = g*cover_factor+vic_gradient
                 else:
                     selected_grad_temp = torch.stack(selected_grad)
@@ -680,9 +679,11 @@ class BlackBoxMalicious(FederatedModel):
                 # print('find a satisfied gradient!')
                 # print(f'*****************************')
                 selected_grad_index.append(index)
-                # selected_grad = torch.cat([selected_grad, single_cover_gradient[index]], dim=0)
                 selected_grad.append(single_cover_gradient[index])
-                best_agr_grad = cur_max_agrEvader_grad if torch.norm(cur_max_agrEvader_grad) > torch.norm(best_agr_grad) else best_agr_grad
+                if torch.norm(cur_max_agrEvader_grad) > torch.norm(best_agr_grad):
+                    best_agr_grad = cur_max_agrEvader_grad 
+                    actual_selected_index.append(index) 
+                    best_g_cov = deepcopy(g_cov)
             # print(f'*****************************')
             # print(f'index={index}')
             # print(f'*****************************')
@@ -690,6 +691,7 @@ class BlackBoxMalicious(FederatedModel):
         # print(selected_grad_index)
         # print(f'*****************************')
         logger.info(f'selected grad index: {selected_grad_index}')
+        logger.info(f'actual selected grad index: {actual_selected_index}')
                 
             
         # print(f'selected_grad: {selected_grad}, len: {len(selected_grad)}')
@@ -698,10 +700,13 @@ class BlackBoxMalicious(FederatedModel):
             print('return vic gradient')
             return vic_gradient
         else:
+            # optimize cover_factor
+            optimal_cover_factor = self.optimize_cover_factor(vic_gradient, best_g_cov, max_honest_diff, grad_honest)
+            logger.info(f'cover factor is optimized from 0.5 to {optimal_cover_factor}')
+            best_agr_grad = optimal_cover_factor * best_g_cov + vic_gradient
             self.aggregator.collect(best_agr_grad, indices)
             print('return agr gradient')
             return best_agr_grad
-
 
         '''
         for _ in range(5):
@@ -832,9 +837,11 @@ class BlackBoxMalicious(FederatedModel):
         assert len(single_cover_gradient)==len(candidate_cover_samples)
         
         # 每一轮挑选一个最好的梯度
+        actual_selected_index = []
         selected_grad_index = []
         selected_grad = []
         best_agr_grad = torch.zeros(0).to(self.DEVICE)
+        best_g_cov = None
         
         gradient = None
         indices = None
@@ -849,13 +856,12 @@ class BlackBoxMalicious(FederatedModel):
             
             for i, g in enumerate(single_cover_gradient):
                 # # 将每一个cover梯度写入文件
-                with open('cover_grad.txt', 'a') as f:
-                    f.write(f'{j}_{i}: {torch.norm(g)}\n')
                 if i in selected_grad_index:
                     continue
                 # 组合cover和poison
                 if len(selected_grad_index) == 0:
                     # gradient, indices = select_by_threshold(g*cover_factor+vic_gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
+                    g_cov = g
                     gradient = g*cover_factor+vic_gradient 
                 else:
                     selected_grad_temp = torch.stack(selected_grad)
@@ -868,11 +874,11 @@ class BlackBoxMalicious(FederatedModel):
                      max_diff = max(torch.norm(gradient / torch.norm(gradient, p=2) - grad_honest[k] / torch.norm(grad_honest[k], p=2)), max_diff)
                 # print(f'max_honest_diff={max_honest_diff}, max_diff={max_diff}')
                 # 将max_diff 写入文件
-                with open('max_diff.txt', 'a') as f:
-                    f.write(f'{j}_{i}: {max_diff} *** {max_honest_diff}\n')
+                # with open('max_diff.txt', 'a') as f:
+                #     f.write(f'{j}_{i}: {max_diff} *** {max_honest_diff}\n')
                     
-                with open('norm.txt', 'a') as f:
-                    f.write(f'{j}_{i}: {torch.norm(gradient)} *** {torch.norm(cur_max_agrEvader_grad)}\n')
+                # with open('norm.txt', 'a') as f:
+                #     f.write(f'{j}_{i}: {torch.norm(gradient)} *** {torch.norm(cur_max_agrEvader_grad)}\n')
 
                 if max_diff <= max_honest_diff and  torch.norm(gradient) > torch.norm(cur_max_agrEvader_grad):
 
@@ -886,10 +892,11 @@ class BlackBoxMalicious(FederatedModel):
                 # print(f'*****************************')
                 selected_grad_index.append(index)
                 selected_grad.append(single_cover_gradient[index])
-                best_agr_grad = cur_max_agrEvader_grad if torch.norm(cur_max_agrEvader_grad) > torch.norm(best_agr_grad) else best_agr_grad
-            else:
-                # print('no satisfied gradient!!')
-                break
+                if torch.norm(cur_max_agrEvader_grad) > torch.norm(best_agr_grad):
+                    best_agr_grad = cur_max_agrEvader_grad 
+                    actual_selected_index.append(index) 
+                    best_g_cov = deepcopy(g_cov)
+
             # print(f'*****************************')
             # print(f'index={index}')
             # print(f'*****************************')
@@ -897,6 +904,7 @@ class BlackBoxMalicious(FederatedModel):
         # print(selected_grad_index)
         # print(f'*****************************')
         logger.info(f'selected grad index: {selected_grad_index}')
+        logger.info(f'actual selected grad index: {actual_selected_index}')
             
         # print(f'selected_grad: {selected_grad}, len: {len(selected_grad)}')
         if best_agr_grad.numel() == 0:
@@ -904,6 +912,10 @@ class BlackBoxMalicious(FederatedModel):
             print('return vic gradient')
             return vic_gradient
         else:
+            # optimize cover_factor
+            optimal_cover_factor = self.optimize_cover_factor(vic_gradient, best_g_cov, max_honest_diff, grad_honest)
+            logger.info(f'cover factor is optimized from 0.5 to {optimal_cover_factor}')
+            best_agr_grad = optimal_cover_factor * best_g_cov + vic_gradient
             self.aggregator.collect(best_agr_grad, indices)
             print('return agr gradient')
             return best_agr_grad
@@ -1188,7 +1200,6 @@ class BlackBoxMalicious(FederatedModel):
                 if torch.norm(cur_max_agrEvader_grad) > torch.norm(best_agr_grad):
                     best_agr_grad = cur_max_agrEvader_grad 
                     actual_selected_index.append(index) 
-                    gradient_dict = {}
                     best_g_cov = deepcopy(g_cov)
                     # print(f'g cover type: {type(g_cov)}, best g cover type: {type(best_g_cov)}')
             # print(f'*****************************')
