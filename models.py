@@ -6,8 +6,7 @@ from data_reader import DataReader
 import numpy as np
 from torch import nn
 from copy import deepcopy
-
-
+from scipy.optimize import minimize
 
 def make_logger(name, save_dir, save_filename):
     """
@@ -189,12 +188,16 @@ class TargetModel:
             self.model = ModelPurchase100()
         elif model == TEXAS100:
             self.model = ModelTexas100()
-        elif model == CIFAR10:
+        elif model == CIFAR10 or model == CINIC10 or model == SVHN:
             self.model = ResNet20()
+        elif model == CIFAR100:
+            self.model = ResNet20(output_shape=100)
         elif model == MNIST:
             self.model = ResNet20(input_shape=(1, 28, 28), pooling_size=7, output_shape=10)
         elif model == FASHION_MNIST:
             self.model = ResNet20(input_shape=(1, 28, 28), pooling_size=7, output_shape=10)
+        elif model == GTSRB:
+            self.model = ResNet20(output_shape=43)
         else:
             raise NotImplementedError("Model not supported")
         self.model = self.model.to(self.DEVICE)

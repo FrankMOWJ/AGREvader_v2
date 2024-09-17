@@ -57,6 +57,37 @@ class DataReader:
             
             self.num_class = 10
 
+        elif data_set == CIFAR100:
+            # Define the transformation for the CIFAR-100 data
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            ])
+    
+            # Load the CIFAR-100 dataset
+            cifar100_dataset_train = datasets.CIFAR100(root=CIFAR100_PATH, train=True, download=True, transform=transform)
+            cifar100_dataset_test = datasets.CIFAR100(root=CIFAR100_PATH, train=False, download=True, transform=transform)
+    
+            # Convert the dataset into tensors for data and labels
+            overall_data = []
+            overall_label = []
+            
+            # Put the test data first
+            for i in range(len(cifar100_dataset_test)):
+                overall_data.append(cifar100_dataset_test[i][0])
+                overall_label.append(cifar100_dataset_test[i][1])
+            
+            for i in range(len(cifar100_dataset_train)):
+                overall_data.append(cifar100_dataset_train[i][0])
+                overall_label.append(cifar100_dataset_train[i][1])
+            
+            # Stack data into a tensor and convert labels into a tensor
+            self.data = torch.stack(overall_data)
+            self.labels = torch.tensor(overall_label)
+            
+            # Set number of classes to 100
+            self.num_class = 100
+
         elif data_set == MNIST:
             transform = transforms.Compose([
                 transforms.ToTensor(),
@@ -118,6 +149,7 @@ class DataReader:
             data = np.load(PURCHASE100_PATH)
             self.data = torch.tensor(data['features'], dtype=torch.float)
             self.labels = torch.tensor(data['labels'], dtype=torch.int64)
+            self.labels = torch.argmax(self.labels, dim=1)
 
         elif data_set == TEXAS100:
             self.num_class = 100
@@ -125,6 +157,99 @@ class DataReader:
             self.data = torch.tensor(data['features'], dtype=torch.float)
             self.labels = torch.tensor(data['labels'], dtype=torch.int64)
             self.labels = torch.argmax(self.labels, dim=1)
+        
+        elif data_set == EMOTION:
+            # NOTE: not finished yet
+            df = pd.read_csv('path_to_your_csv_file.csv')
+
+            # Split the pixels column into individual pixel values
+            df['pixels'] = df['pixels'].apply(lambda x: np.array(x.split(), dtype='int'))
+
+            # Example: Visualizing the first image
+            first_image = df['pixels'][0].reshape(48, 48)
+            self.num_class = 7
+            
+        elif data_set == CINIC10:
+            cinic_directory = CINIC10_PATH
+            cinic_mean = [0.47889522, 0.47227842, 0.43047404]
+            cinic_std = [0.24205776, 0.23828046, 0.25874835]
+           
+            dataset_train = datasets.ImageFolder(cinic_directory + '/train',
+                    transform=transforms.Compose([transforms.ToTensor(),
+                    transforms.Normalize(mean=cinic_mean,std=cinic_std)]))
+            dataset_test = datasets.ImageFolder(cinic_directory + '/test',
+                    transform=transforms.Compose([transforms.ToTensor(),
+                    transforms.Normalize(mean=cinic_mean,std=cinic_std)]))
+
+            # 将数据集转换为张量
+            overall_data = []
+            overall_label = []
+            # 把test放在前面
+            for i in range(len(dataset_test)):
+                overall_data.append(dataset_test[i][0])
+                overall_label.append(dataset_test[i][1])
+            for i in range(len(dataset_train)):
+                overall_data.append(dataset_train[i][0])
+                overall_label.append(dataset_train[i][1])
+            
+            # 将数据和标签转换为张量
+            self.data = torch.stack(overall_data)
+            self.labels = torch.tensor(overall_label)
+            
+            self.num_class = 10
+        
+        elif data_set == GTSRB:
+            self.num_class = 43
+            transform = transforms.Compose([
+                transforms.Resize((48, 48)),   # Resize images to 48x48
+                transforms.ToTensor(),         # Convert image to PyTorch tensor
+            ])
+
+            # Load the dataset from train and test directories
+            train_dataset = datasets.ImageFolder(root=SVHN_PATH + '/Train/Images', transform=transform)
+            test_dataset = datasets.ImageFolder(root=SVHN_PATH + '/Test', transform=transform)
+
+            #TODO: test-set: 12,630, train-set: 39,209
+            overall_data = []
+            overall_label = []
+            # 把test放在前面
+            for i in range(len(test_dataset)):
+                overall_data.append(test_dataset[i][0])
+                overall_label.append(test_dataset[i][1])
+            for i in range(len(train_dataset)):
+                overall_data.append(train_dataset[i][0])
+                overall_label.append(train_dataset[i][1])
+            
+            self.data = torch.stack(overall_data)
+            self.labels = torch.tensor(overall_label)
+
+        elif data_set == SVHN:
+            self.num_class = 10
+
+            transform = transforms.Compose([
+                transforms.ToTensor(),  # 将图片转换为Tensor
+                transforms.Normalize((0.5,), (0.5,))  # 正则化处理
+            ])
+
+            # 加载训练集
+            train_dataset = torchvision.datasets.SVHN(root=SVHN_PATH, split='train', download=True, transform=transform)
+            test_dataset = torchvision.datasets.SVHN(root=SVHN, split='test', download=True, transform=transform)  
+
+            # 将数据集转换为张量
+            overall_data = []
+            overall_label = []
+            # 把test放在前面
+            for i in range(len(mnist_dataset_test)):
+                overall_data.append(mnist_dataset_test[i][0])
+                overall_label.append(mnist_dataset_test[i][1])
+            for i in range(len(mnist_dataset_train)):
+                overall_data.append(mnist_dataset_train[i][0])
+                overall_label.append(mnist_dataset_train[i][1])
+            
+            # 将数据和标签转换为张量
+            self.data = torch.stack(overall_data)
+            self.labels = torch.tensor(overall_label)
+
         else:
             raise ValueError(f'no dataset {data_set}')
 
@@ -220,7 +345,7 @@ class DataReader:
         :param batch_training: True to train by batch, False will not
         :return: None
         """
-        if self.data_set == LOCATION30 or self.data_set == PURCHASE100 or self.data_set == TEXAS100:
+        if self.data_set == LOCATION30 or self.data_set == PURCHASE100 or self.data_set == TEXAS100 or self.data_set == CINIC10:
             if batch_training:
                 train_count = round(self.batch_indices.size(0) * ratio[0] / sum(ratio))
                 self.train_set = self.batch_indices[:train_count].to(self.DEVICE)
@@ -230,10 +355,23 @@ class DataReader:
                 rand_perm = torch.randperm(self.data.size(0)).to(self.DEVICE)
                 self.train_set = rand_perm[:train_count].to(self.DEVICE)
                 self.test_set = rand_perm[train_count:].to(self.DEVICE)
-        elif self.data_set == CIFAR10 or self.data_set == MNIST or self.data_set == FASHION_MNIST:
+        elif self.data_set == CIFAR10 or self.data_set == MNIST or self.data_set == FASHION_MNIST or self.data_set == CIFAR100:
             test_count = round(self.batch_indices.size(0) / 6.0) # train: 50000, test: 10000
             self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
             self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
+
+        elif self.data_set == GTSRB:
+            test_count = round(self.batch_indices.size(0) / 4.1) 
+            self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
+            self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
+
+        elif self.data_set == SVHN:
+            test_count = round(self.batch_indices.size(0) / 3.8) 
+            self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
+            self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
+
+
+
 
     def get_train_set(self, participant_index=0):
         """
