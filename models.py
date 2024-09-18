@@ -198,6 +198,10 @@ class TargetModel:
             self.model = ResNet20(input_shape=(1, 28, 28), pooling_size=7, output_shape=10)
         elif model == GTSRB:
             self.model = ResNet20(output_shape=43)
+        elif model == SUN397:
+            self.model = ResNet20(output_shape=397)
+        elif model == STL10:
+            self.model = ResNet20(pooling_size=16)
         else:
             raise NotImplementedError("Model not supported")
         self.model = self.model.to(self.DEVICE)

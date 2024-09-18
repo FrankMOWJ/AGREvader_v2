@@ -250,6 +250,52 @@ class DataReader:
             self.data = torch.stack(overall_data)
             self.labels = torch.tensor(overall_label)
 
+        elif data_set == SUN397:
+            transform = transforms.Compose([
+                transforms.Resize((128, 128)),  # 调整图像大小
+                transforms.ToTensor(),  # 将图像转换为张量
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # 归一化
+            ])
+            # NOTE: 数据集本身并没有划分出训练集和测试集
+            dataset = datasets.SUN397(root=SUN397_PATH, download=True, transform=transform)
+
+            # 将数据集转换为张量
+            overall_data = []
+            overall_label = []
+            for i in range(len(dataset)):
+                overall_data.append(dataset[i][0])
+                overall_label.append(dataset[i][1])
+            
+            # 将数据和标签转换为张量
+            self.data = torch.stack(overall_data)
+            self.labels = torch.tensor(overall_label)
+            
+            self.num_class = 397
+        
+        elif data_set == STL10:
+            self.num_class = 10
+            transform = transforms.Compose([
+                transforms.Resize((96, 96)),   # Resize images to 48x48
+                transforms.ToTensor(),         # Convert image to PyTorch tensor
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # 归一化
+            ])
+            # Load the dataset from train and test directories
+            train_dataset = datasets.STL10(root=STL10_PATH, split='train', download=True, transform=transform)
+            test_dataset = datasets.STL10(root=STL10_PATH, split='test', download=True, transform=transform)
+
+            overall_data = []
+            overall_label = []
+            # 把test放在前面
+            for i in range(len(test_dataset)):
+                overall_data.append(test_dataset[i][0])
+                overall_label.append(test_dataset[i][1])
+            for i in range(len(train_dataset)):
+                overall_data.append(train_dataset[i][0])
+                overall_label.append(train_dataset[i][1])
+            
+            self.data = torch.stack(overall_data)
+            self.labels = torch.tensor(overall_label)
+
         else:
             raise ValueError(f'no dataset {data_set}')
 
@@ -369,7 +415,17 @@ class DataReader:
             test_count = round(self.batch_indices.size(0) / 3.8) 
             self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
             self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
-
+        
+        elif self.data_set == SUN397:
+            test_count = round(self.batch_indices.size(0) / 5.0) 
+            self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
+            self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
+        
+        elif self.data_set == STL10:
+            # train: 5000, test: 8000
+            test_count = 8 * round(self.batch_indices.size(0) / 13.0) 
+            self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
+            self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
 
 
 

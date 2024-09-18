@@ -61,6 +61,12 @@ SVHN_PATH = '~/.torch/'
 GTSRB = 'GTSRB'
 GTSRB_PATH = './datasets-master/GTSRB'
 
+SUN397 = 'SUN397'
+SUN397_PATH = '~/.torch/'
+
+STL10 = 'STL10'
+STL10_PATH = '~/.torch/'
+
 DATASET = CIFAR10
 # Attack method
 ATTACK = 'None'
