@@ -111,6 +111,6 @@ EXPERIMENTAL_DATA_DIRECTORY = "./CIFAR10_output_5/" # ./CIFAR10_output_syn/"
 
 
 # Random seed
-GLOBAL_SEED = 79
+GLOBAL_SEED = 999
 
 
