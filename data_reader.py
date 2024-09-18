@@ -206,8 +206,8 @@ class DataReader:
             ])
 
             # Load the dataset from train and test directories
-            train_dataset = datasets.ImageFolder(root=SVHN_PATH + '/Train/Images', transform=transform)
-            test_dataset = datasets.ImageFolder(root=SVHN_PATH + '/Test', transform=transform)
+            train_dataset = datasets.ImageFolder(root=GTSRB_PATH + '/Train/Images', transform=transform)
+            test_dataset = datasets.ImageFolder(root=GTSRB_PATH + '/Test', transform=transform)
 
             #TODO: test-set: 12,630, train-set: 39,209
             overall_data = []

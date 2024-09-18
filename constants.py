@@ -34,6 +34,9 @@ DEFAULT_SET = LOCATION30 #Default dataset
 CIFAR10 = "CIFAR10" 
 CIFAR10_PATH = "~/.torch/"
 
+CIFAR100 = "CIFAR100" 
+CIFAR100_PATH = "~/.torch/"
+
 MNIST = 'MNIST'
 MNIST_PATH = "~/.torch/"
 
@@ -45,6 +48,18 @@ PURCHASE100_PATH = "./datasets-master/purchase100.npz"
 
 TEXAS100 = "Texas100"
 TEXAS100_PATH = "./datasets-master/texas100.npz"
+
+CINIC10 = 'CINIC10'
+CINIC10_PATH = "./datasets-master/CINIC-10"
+
+EMOTION = 'EMOTION10'
+EMOTION_PATH = './datasets-master/Emotion_classification/'
+
+SVHN = 'SVHN'
+SVHN_PATH = '~/.torch/'
+
+GTSRB = 'GTSRB'
+GTSRB_PATH = './datasets-master/GTSRB'
 
 DATASET = CIFAR10
 # Attack method
@@ -96,6 +111,6 @@ EXPERIMENTAL_DATA_DIRECTORY = "./CIFAR10_output_5/" # ./CIFAR10_output_syn/"
 
 
 # Random seed
-GLOBAL_SEED = 999
+GLOBAL_SEED = 79
 
 
