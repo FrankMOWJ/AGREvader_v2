@@ -94,6 +94,8 @@ FLAME = "Flame"
 
 FOOLSGOLD = "Foolsgold"
 
+ANGLE_MEDIAN = 'Angle-Median'
+
 # Federated learning parameters
 NUMBER_OF_PARTICIPANTS = 9 #Number of participants
 PARAMETER_EXCHANGE_RATE = 1 #Parameter exchange rate
