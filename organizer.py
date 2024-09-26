@@ -24,7 +24,7 @@ def get_parser(**parser_kwargs):
         "-a",
         "--attack",
         help="attacker attack type",
-        choices=['norm', 'unit', 'angle', 'cos'],
+        choices=['norm', 'unit', 'angle', 'cos', 'origin'],
         default='angle'
     )
 
@@ -32,8 +32,8 @@ def get_parser(**parser_kwargs):
         "-d",
         "--defense",
         help="normal users defense type",
+        required=True
         choices=['Fang', 'Median', 'Trim', 'Krum', 'Multi-Krum', 'Deepsight', 'Rflbat', 'Flame', 'Foolsgold', 'None'],
-        default='Median'
     )
     
     parser.add_argument(
@@ -41,8 +41,8 @@ def get_parser(**parser_kwargs):
         "--dataset",
         help="dataset",
         required=True,
-        choices=['CIFAR10', 'Location30', 'Purchase100', 'MNIST', 'FASHION_MNIST', 'Texas100'],
-        default='CIFAR10'
+        # choices=['CIFAR10', 'Location30', 'Purchase100', 'MNIST', 'FASHION_MNIST', 'Texas100', 'CIFAR100'],
+        # default='CIFAR10'
     )
 
     parser.add_argument(
@@ -103,7 +103,7 @@ def get_parser(**parser_kwargs):
     parser.add_argument(
         "--train_epoch",
         help="Number of epoches for attacker to normal training",
-        default=5,
+        default=0,
         type=int
     )
     
@@ -483,21 +483,22 @@ class Organizer():
                 # print(f'Attack: {ATTACK}')
                 # attacker attack
                 # attcker train the model within the defined training epoch
-                # if j < self.TRAIN_EPOCH:
-                if not start_attack_flag:
+                if j < self.TRAIN_EPOCH:
+                # if not start_attack_flag:
                     attacker.train()
                 # attacker attack the model within the defined attack epoch
                 else:
                     ATTACK_ROUND.append(j)
                     if ATTACK == 'angle':
                         print('angle attack')
-                        attacker.blackbox_attack_angle(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, try_times=TRY_TIMES, logger=logger) #TODO  添加logger   
+                        attacker.blackbox_attack_angle(cover_factor=1.0, grad_honest=steal_grad_lst, try_times=TRY_TIMES, logger=logger) #TODO  添加logger   
                     elif ATTACK == 'unit':
                         print('unitnorm attack')
-                        attacker.blackbox_attack_unit(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, logger=logger)
+                        # COVER_FACTOR = 1.0
+                        attacker.blackbox_attack_unit(cover_factor=1.0, grad_honest=steal_grad_lst, logger=logger)
                     elif ATTACK == 'norm':
                         print('norm attack')
-                        attacker.blackbox_attack_norm(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, logger=logger)
+                        attacker.blackbox_attack_origin_norm(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, logger=logger)
                     elif ATTACK == 'cos':
                         print('cos attack')
                         attacker.blackbox_attack_cos(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
@@ -547,6 +548,7 @@ class Organizer():
                 start_attack_flag = True
                 logger.info(f"Start attack at {j}")
                 start_attack_epoch = j
+                
         # Printing and recording
         # record best round info
         best_attack_index = attack_recorder["acc"].idxmax()

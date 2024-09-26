@@ -109,6 +109,9 @@ class RobustMechanism:
             self.function = self.FLAME
         elif robust_mechanism == FOOLSGOLD:
             self.function = self.Foolsgold
+        elif robust_mechanism == ANGLE_MEDIAN:
+            self.function = self.angle_median
+
         self.agr_model = None
         self.history_gradients = []  # To store historical gradients for each client
 
@@ -136,6 +139,32 @@ class RobustMechanism:
         :return: The median of the gradients
         """
         return torch.median(input_gradients, 0).values
+
+    def angle_median(self, input_gradients: torch.Tensor):
+        num_gradients = input_gradients.size(0) 
+        angles = torch.zeros(num_gradients, num_gradients)
+
+        # 计算每一对梯度之间的角度
+        for i in range(num_gradients):
+            for j in range(i + 1, num_gradients):
+                g1 = input_gradients[i]
+                g2 = input_gradients[j]
+
+                cos_theta = F.cosine_similarity(g1, g2, dim=0).item()
+                # 计算角度
+                cos_theta_clamped = max(-1.0, min(1.0, cos_theta))
+                theta = torch.acos(torch.tensor(cos_theta_clamped))  # 转为张量计算
+                angles[i, j] = theta
+                angles[j, i] = theta  # 对称矩阵
+
+        # 计算每个梯度的平均角度
+        mean_angles = angles.mean(dim=1)
+
+        # 找到平均角度最小的梯度索引
+        min_angle_idx = torch.argmin(mean_angles).item()
+
+        # 返回该梯度
+        return input_gradients[min_angle_idx]
     
     def trimmed_mean(self, input_gradients: torch.Tensor, malicious_user: int, trim_bound=TRIM_BOUND):
         """
@@ -146,7 +175,6 @@ class RobustMechanism:
         :return: The trimmed mean of the gradients
         """
         input_gradients = torch.sort(input_gradients, dim=0).values
-        print("ok")
         return input_gradients[trim_bound:-trim_bound].mean(0)
         
     def krum(self, input_gradients: torch.Tensor, malicious_user: int):
@@ -448,7 +476,7 @@ class RobustMechanism:
         :return: The average of the gradients after adding the malicious gradient
         """
         gradients = torch.vstack(gradients)
-        if self.function == self.naive_average or self.function == self.median:
+        if self.function == self.naive_average or self.function == self.median or self.function == self.angle_median:
             return self.function(gradients)
         elif self.function == self.krum or self.function == self.FLAME \
             or self.function == self.Foolsgold or self.function == self.Fang_defense:
