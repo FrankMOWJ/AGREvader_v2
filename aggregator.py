@@ -34,7 +34,7 @@ class Aggregator:
         self.counter_by_indices = torch.ones(self.sample_gradients.size()).to(self.DEVICE)
         self.agr_model_calculated = False
 
-    def collect(self, gradient: torch.Tensor,source, indices=None, sample_count=None):
+    def collect(self, gradient: torch.Tensor,indices=None, sample_count=None, source=None):
         """
         Collect one set of gradients from a participant
         :param gradient: The gradient calculated by a participant
@@ -45,8 +45,6 @@ class Aggregator:
         if sample_count is None:
             self.collected_gradients.append(gradient)
             if indices is not None:
-                # print(indices.device)
-                # print(self.counter_by_indices.device)
                 self.counter_by_indices[indices] += 1
             self.counter += 1
         else:

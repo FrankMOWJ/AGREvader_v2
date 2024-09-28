@@ -7,7 +7,7 @@ class DataReader:
     """
     The class to read data set from the given file
     """
-    def __init__(self, data_set=CIFAR10, data_distribution='iid', label_column=LABEL_COL, batch_size=BATCH_SIZE,
+    def __init__(self, data_set=CIFAR10, data_distribution='iid', number_clients=9, label_column=LABEL_COL, batch_size=BATCH_SIZE,
                 reserved=0, device='cuda:0'):
         """
         Load the data from the given data path
@@ -19,6 +19,7 @@ class DataReader:
         # load the csv file
         self.data_set = data_set
         self.num_class = None
+        self.NUMBER_OF_PARTICIPANTS = number_clients
         if data_set == LOCATION30:
             path = LOCATION30_PATH
             data_frame = pd.read_csv(path, header=None)
@@ -307,13 +308,7 @@ class DataReader:
         # for i in range(50):
         #     print(self.labels[i])
 
-        # if there is no reserved data samples defined, then set the reserved data samples to 0
-        try:
-            reserved = RESERVED_SAMPLE
-        except NameError:
-            reserved = 0
-            
-# TODO 到这里还是一样的
+        assert reserved != 0, 'cover sample should be not 0'
 
         # initialize the training and testing batches indices
         self.train_set = None
@@ -336,10 +331,9 @@ class DataReader:
             .format(overall_size, batch_size, self.test_set.size(0), self.train_set.size(0)))
             
         if data_distribution == 'non-iid':
-            self.train_set = self.make_noniid_dataset(self.num_class, num_users=NUMBER_OF_PARTICIPANTS, batch_size=BATCH_SIZE, bias=0.5)
+            self.train_set = self.make_noniid_dataset(self.num_class, num_users=self.NUMBER_OF_PARTICIPANTS, batch_size=BATCH_SIZE, bias=0.5)
             
     def make_noniid_dataset(self, num_class, num_users=1, batch_size=64, bias=0.5):
-        
         bias_weight = bias
         other_group_size = (1-bias_weight) / (num_class-1)
         worker_per_group = num_users / (num_class) # num_worker=nuser, num_ouputs=nclass
@@ -382,8 +376,6 @@ class DataReader:
         
         return noniid_train_set
             
-
-
     def train_test_split(self, ratio=TRAIN_TEST_RATIO, batch_training=BATCH_TRAINING):
         """
         Split the data set into training set and test set according to the given ratio
@@ -428,14 +420,14 @@ class DataReader:
             self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
 
 
-
+    
     def get_train_set(self, participant_index=0):
         """
         Get the indices for each training batch
         :param participant_index: the index of a particular participant, must be less than the number of participants
         :return: tensor[number_of_batches_allocated, BATCH_SIZE] the indices for each training batch
         """
-        batches_per_participant = self.train_set.size(0) // NUMBER_OF_PARTICIPANTS
+        batches_per_participant = self.train_set.size(0) // self.NUMBER_OF_PARTICIPANTS
         lower_bound = participant_index * batches_per_participant
         upper_bound = (participant_index + 1) * batches_per_participant
         return self.train_set[lower_bound: upper_bound]
@@ -446,7 +438,7 @@ class DataReader:
         :param participant_index: the index of a particular participant, must be less than the number of participants
         :return: tensor[number_of_batches_allocated, BATCH_SIZE] the indices for each test batch
         """
-        batches_per_participant = self.test_set.size(0) // NUMBER_OF_PARTICIPANTS
+        batches_per_participant = self.test_set.size(0) // self.NUMBER_OF_PARTICIPANTS
         lower_bound = participant_index * batches_per_participant
         upper_bound = (participant_index + 1) * batches_per_participant
         return self.test_set[lower_bound: upper_bound]

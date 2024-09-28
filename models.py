@@ -85,7 +85,7 @@ class ModelPurchase100(torch.nn.Module):
     def __init__(self):
         super(ModelPurchase100, self).__init__()
         self.input_layer = torch.nn.Sequential(
-            torch.nn.Linear(100, 512),
+            torch.nn.Linear(600, 512),
             torch.nn.ReLU(),
         )
         self.output_layer = torch.nn.Sequential(
@@ -202,6 +202,14 @@ class TargetModel:
             self.model = ResNet20(output_shape=397)
         elif model == STL10:
             self.model = ResNet20(pooling_size=16)
+        elif model == PCAM:
+            self.model = ResNet20(input_shape=(3, 96, 96), pooling_size=16, output_shape=2)
+        elif model == OxfordIIITPet:
+            self.model = ResNet20(input_shape=(3, 96, 96), pooling_size=16, output_shape=37)
+        elif model == FOOD101:
+            self.model = ResNet20(input_shape=(3, 96, 96), pooling_size=16, output_shape=101)
+        elif model == FER2013:
+            self.model = ResNet20(input_shape=(3, 48, 48), pooling_size=8, output_shape=7)
         else:
             raise NotImplementedError("Model not supported")
         self.model = self.model.to(self.DEVICE)
@@ -454,7 +462,7 @@ class BlackBoxMalicious(FederatedModel):
     Representing the malicious participant trying to perform a black-box membership inference attack
     """
 
-    def __init__(self, reader: DataReader, aggregator: Aggregator, model, device):
+    def __init__(self, reader: DataReader, aggregator: Aggregator, model, device, number_attack_sample):
         """
         Initialize the black-box malicious participant
         :param reader: Reader to read the data
@@ -462,7 +470,7 @@ class BlackBoxMalicious(FederatedModel):
         """
         super(BlackBoxMalicious, self).__init__(reader, aggregator, model, device)
         self.DEVICE = device
-        self.attack_samples, self.members, self.non_members = reader.get_black_box_batch()
+        self.attack_samples, self.members, self.non_members = reader.get_black_box_batch(attack_batch_size=number_attack_sample)
         self.member_count = 0
         self.batch_x, self.batch_y = self.data_reader.get_batch(self.attack_samples)
         self.shuffled_y = self.shuffle_label(self.batch_y)
@@ -504,7 +512,7 @@ class BlackBoxMalicious(FederatedModel):
         return gradient
 
 
-    def blackbox_attack_origin(self,cover_factor = 0,batch_size = BATCH_SIZE):
+    def blackbox_attack_origin(self,num_malicious=1, cover_factor = 0,batch_size = BATCH_SIZE):
         """
         Optimized shuffle label attack
         :param cover_factor: Cover factor of the gradient of cover samples
@@ -544,11 +552,68 @@ class BlackBoxMalicious(FederatedModel):
             gradient, indices = select_by_threshold(cover_gradient*cover_factor+gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD) # computed the malicious gradient
         else:
             gradient, indices = select_by_threshold(gradient, GRADIENT_EXCHANGE_RATE, self.DEVICE, GRADIENT_SAMPLE_THRESHOLD)
-        self.aggregator.collect(gradient, indices)
+        self.aggregator.collect(gradient, indices, sample_count=num_malicious)
 
         return gradient
 
-    def blackbox_attack_norm(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, logger=None):
+    def blackbox_attack_origin_norm(self,num_malicious=1, cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, logger=None):
+        """
+        Optimized shuffle label attack
+        :param cover_factor: Cover factor of the gradient of cover samples
+        :param batch_size: The size of the batch
+        :return: The malicious gradient covered by gradient of cover samples for current round
+        """
+        # get max_honest_diff
+        max_honest_diff = 0.0
+        for i in range(len(grad_honest)):
+            for j in range(i+1, len(grad_honest)):
+                max_honest_diff = max(max_honest_diff, torch.norm(grad_honest[i] - grad_honest[j]))
+                
+        cache = self.get_flatten_parameters()
+        out = self.model(self.batch_x)
+        loss = self.loss_function(out, self.shuffled_y) # compute loss with shuffled labels
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
+        vic_grad = self.get_flatten_parameters() - cache
+        self.load_parameters(cache)
+        
+        # !! cover sample
+        candidate_cover_samples = self.data_reader.reserve_set #cover samples
+        cover_samples = candidate_cover_samples
+        
+        i = 0
+        while i * batch_size < len(cover_samples):
+            batch_index = cover_samples[i * batch_size:(i + 1) * batch_size]
+            x, y = self.data_reader.get_batch(batch_index)
+            out = self.model(x)
+            loss = self.loss_function(out, y)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            i += 1
+        cov_grad = self.get_flatten_parameters() - cache
+        self.load_parameters(cache)
+        
+        agr_grad = cov_grad * cover_factor + vic_grad
+                
+        max_diff = 0.0
+        
+        for k in range(len(grad_honest)):
+            max_diff = max(torch.norm(agr_grad - grad_honest[k]), max_diff)
+
+        logger.info(f'max_diff: {max_diff}, max_honest_diff: {max_honest_diff}')
+        if max_diff <= max_honest_diff :
+            # self.aggregator.collect(agr_grad, sample_count=num_malicious)
+            logger.info('use agr_grad')
+            return agr_grad
+        else: 
+            # self.aggregator.collect(cov_grad, sample_count=num_malicious)
+            logger.info('use vic_grad')
+            return vic_grad    
+    
+    def blackbox_attack_norm(self,num_malicious=1, cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, logger=None):
         """
         Optimized shuffle label attack
         :param cover_factor: Cover factor of the gradient of cover samples
@@ -785,7 +850,7 @@ class BlackBoxMalicious(FederatedModel):
         return self.best_AGREvader_grad*/
         '''
         
-    def blackbox_attack_unit(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, logger=None):
+    def blackbox_attack_unit(self,num_malicious=1, cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, logger=None):
         """
         Optimized shuffle label attack
         :param cover_factor: Cover factor of the gradient of cover samples
@@ -915,15 +980,15 @@ class BlackBoxMalicious(FederatedModel):
             
         # print(f'selected_grad: {selected_grad}, len: {len(selected_grad)}')
         if best_agr_grad.numel() == 0:
-            self.aggregator.collect(vic_gradient, indices)
+            self.aggregator.collect(vic_gradient, indices, num_malicious)
             print('return vic gradient')
             return vic_gradient
         else:
             # optimize cover_factor
-            optimal_cover_factor = self.optimize_cover_factor(vic_gradient, best_g_cov, max_honest_diff, grad_honest)
-            logger.info(f'cover factor is optimized from 0.5 to {optimal_cover_factor}')
-            best_agr_grad = optimal_cover_factor * best_g_cov + vic_gradient
-            self.aggregator.collect(best_agr_grad, indices)
+            # optimal_cover_factor = self.optimize_cover_factor(vic_gradient, best_g_cov, max_honest_diff, grad_honest)
+            # logger.info(f'cover factor is optimized from 0.5 to {optimal_cover_factor}')
+            # best_agr_grad = optimal_cover_factor * best_g_cov + vic_gradient
+            self.aggregator.collect(best_agr_grad, indices, num_malicious)
             print('return agr gradient')
             return best_agr_grad
 
@@ -984,7 +1049,7 @@ class BlackBoxMalicious(FederatedModel):
             dot_product = torch.dot(gradA.view(-1), gradB.view(-1))
             norm_A = torch.norm(gradA, p=2)
             norm_B = torch.norm(gradB, p=2)
-            
+
             # 计算余弦相似度
             cos_theta = dot_product / (norm_A * norm_B)
             # 使用 clip 限制 cos_theta 的范围，防止浮点数误差
@@ -1053,7 +1118,7 @@ class BlackBoxMalicious(FederatedModel):
             optimal_cover_factor = result.x[0]
             return optimal_cover_factor
     
-    def blackbox_attack_angle(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, try_times=5, logger=None):
+    def blackbox_attack_angle(self,num_malicious=1, cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, logger=None):
         """
         Optimized shuffle label attack
         :param cover_factor: Cover factor of the gradient of cover samples
@@ -1067,12 +1132,6 @@ class BlackBoxMalicious(FederatedModel):
             for j in range(i+1, len(grad_honest)):
                 theta_degrees = self.get_angle(grad_honest[i], grad_honest[j])
                 max_honest_diff = max(max_honest_diff, theta_degrees)
-                
-        # for grad in grad_honest:
-        #     with open('angle_log_2/grad_honest.txt', 'a') as f:
-        #             f.write(f'{grad}\n{torch.norm(grad)}\n\n')
-        #     with open('angle_log_2/grad_honest.txt', 'a') as f:
-        #             f.write('************************')
                 
         cache = self.get_flatten_parameters()
         # state_cache = self.model.state_dict()
@@ -1163,6 +1222,14 @@ class BlackBoxMalicious(FederatedModel):
         
         gradient = None
         indices = None
+
+        min_cover_honest_diff = 360.0
+        for cover_grad in single_cover_gradient:
+            max_cover_honest_diff = 0.0
+            for honest_grad in grad_honest:
+                max_cover_honest_diff = max(max_cover_honest_diff, self.get_angle(cover_grad + vic_gradient, honest_grad))
+            min_cover_honest_diff = min(min_cover_honest_diff, max_cover_honest_diff)
+
         
         for j in range(5):
             
@@ -1215,20 +1282,20 @@ class BlackBoxMalicious(FederatedModel):
         # print(f'*****************************')
         # print(selected_grad_index)
         # print(f'*****************************')
+        logger.info(f'max_cover_honest_diff: {min_cover_honest_diff}, max_honest_diff: {max_honest_diff}')
         logger.info(f'selected grad index: {selected_grad_index}')
         logger.info(f'actual selected grad index: {actual_selected_index}')
             
-        # print(f'selected_grad: {selected_grad}, len: {len(selected_grad)}')
         if best_agr_grad.numel() == 0:
-            self.aggregator.collect(vic_gradient, indices)
+            self.aggregator.collect(vic_gradient, indices, num_malicious)
             print('return vic gradient')
             return vic_gradient
         else:
             # optimize cover_factor
-            optimal_cover_factor = self.optimize_cover_factor(vic_gradient, best_g_cov, max_honest_diff, grad_honest)
-            logger.info(f'cover factor is optimized from 0.5 to {optimal_cover_factor}')
-            best_agr_grad = optimal_cover_factor * best_g_cov + vic_gradient
-            self.aggregator.collect(best_agr_grad, indices)
+            # optimal_cover_factor = self.optimize_cover_factor(vic_gradient, best_g_cov, max_honest_diff, grad_honest)
+            # logger.info(f'cover factor is optimized from 0.5 to {optimal_cover_factor}')
+            # best_agr_grad = optimal_cover_factor * best_g_cov + vic_gradient
+            self.aggregator.collect(best_agr_grad, indices, num_malicious)
             print('return agr gradient')
             return best_agr_grad
         
@@ -1285,7 +1352,7 @@ class BlackBoxMalicious(FederatedModel):
             return cur_max_agrEvader_grad
         '''
         
-    def blackbox_attack_cos(self,cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None): 
+    def blackbox_attack_cos(self,num_malicious=1, cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None): 
         """
         Optimized shuffle label attack
         :param cover_factor: Cover factor of the gradient of cover samples
@@ -1397,7 +1464,6 @@ class BlackBoxMalicious(FederatedModel):
                 true_non_member += 1
             else:
                 false_non_member += 1
-        print(f'ground true len: {sum(ground_truth)}')
         return true_member, false_member, true_non_member, false_non_member
 
     def evaluate_member_accuracy(self):
@@ -1635,9 +1701,9 @@ class GreyBoxMalicious(FederatedModel):
         return true_member, false_member, true_non_member, false_non_member
 
 if __name__ == "__main__":
-    model = ResNet20()
+    model = ResNet20(input_shape=(3, 48, 48), pooling_size=8, output_shape=7)
 
-    for name, parameter in model.named_parameters():
-        print(name)
-        # out = torch.cat([out, parameter.flatten()]).to(self.DEVICE)
+    x = torch.rand((1, 3, 48, 48))
+    y = model(x)
 
+    print(y.shape)

@@ -32,7 +32,7 @@ def get_parser(**parser_kwargs):
         "-d",
         "--defense",
         help="normal users defense type",
-        required=True
+        required=True,
         choices=['Fang', 'Median', 'Trim', 'Krum', 'Multi-Krum', 'Deepsight', 'Rflbat', 'Flame', 'Foolsgold', 'None', 'Angle-Median'],
     )
     
@@ -61,15 +61,19 @@ def get_parser(**parser_kwargs):
         default=0
     )
 
+    parser.add_argument(
+        "--Number_client",
+        help="Number of clients",
+        default=10,
+        type=int
+    )
 
-    # parser.add_argument(
-    #     "-r",
-    #     "--victim_ratio",
-    #     help="customized victim parameter weight when combine victim and cover params, \
-    #         used different ratio from the config file",
-    #     default=None,
-    #     type=float
-    # )
+    parser.add_argument(
+        "--Number_malicious",
+        help="Number of malicious clients",
+        default=1,
+        type=int
+    )
     
     parser.add_argument(
         "--device",
@@ -96,7 +100,7 @@ def get_parser(**parser_kwargs):
     parser.add_argument(
         "--max_epoch",
         help="Number of epoches to run totally",
-        default=150,
+        default=800,
         type=int
     )
 
@@ -104,6 +108,13 @@ def get_parser(**parser_kwargs):
         "--train_epoch",
         help="Number of epoches for attacker to normal training",
         default=0,
+        type=int
+    )
+
+    parser.add_argument(
+        "--number_attack_samples",
+        help="Number of attack sample including member and non-member",
+        default=300,
         type=int
     )
     
@@ -161,7 +172,9 @@ class Organizer():
         self.TRAIN_EPOCH = self.args.train_epoch
         self.DEVICE =  torch.device(f"cuda:{self.args.device}" if torch.cuda.is_available() else "cpu")
         self.set_random_seed()
-        self.reader = DataReader(data_set=self.args.dataset, data_distribution=self.DATA_DISTRIBUTION, device=self.DEVICE)
+        self.reader = DataReader(data_set=self.args.dataset, number_clients=self.args.Number_client - self.args.Number_malicious, 
+                                data_distribution=self.DATA_DISTRIBUTION, reserved=self.args.number_attack_samples,
+                                device=self.DEVICE)
         self.target = TargetModel(self.reader, participant_index=0, device=self.DEVICE, model=self.args.dataset)
         print(f'target model: {self.target.model}')
     
@@ -362,6 +375,10 @@ class Organizer():
         DATASET = self.args.dataset
         TRY_TIMES = self.args.cover_times
         EXPERIMENTAL_DATA_DIRECTORY = self.args.output_dir
+        NUMBER_OF_ADVERSARY = self.args.Number_malicious
+        NUMBER_OF_PARTICIPANTS = self.args.Number_client - NUMBER_OF_ADVERSARY
+        NUMBER_OF_ATTACK_SAMPLES = self.args.number_attack_samples
+        RESERVED_SAMPLE = NUMBER_OF_ATTACK_SAMPLES
         ATTACK_ROUND = []
 
         # Initialize data frame for recording purpose
@@ -382,9 +399,11 @@ class Organizer():
         logger.info("Attack is {}".format(ATTACK))
         logger.info("Dataset is {}".format(DATASET))
         logger.info("Number of User is {}".format(NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY))
+        logger.info("Number of Client is {}".format(NUMBER_OF_PARTICIPANTS))
+        logger.info("Number of Melitious Client is {}".format(NUMBER_OF_ADVERSARY))
+        logger.info("Number of Attack Samples is {}".format(NUMBER_OF_ATTACK_SAMPLES))
         logger.info("C is {}".format(C))
         logger.info("Max Delay is {}".format(T_DELAY))
-        logger.info("Try Times is {}".format(TRY_TIMES))
         logger.info("Member ratio is {}".format(BLACK_BOX_MEMBER_RATE))
         logger.info("cover factor is {},cover dataset size is {}".format(COVER_FACTOR, RESERVED_SAMPLE))
 
@@ -411,8 +430,9 @@ class Organizer():
                 acc_recorder.loc[len(acc_recorder)] = (0, i, test_loss, test_acc, 0)
             logger.info("Participant {} initiated, loss={:.4f}, acc={:.4f}".format(i, test_loss, test_acc))
 
-        # Initialize attacker
-        attacker = BlackBoxMalicious(self.reader, aggregator, DATASET, self.DEVICE)
+        # Initialize attackers
+        attacker = BlackBoxMalicious(self.reader, aggregator, DATASET, self.DEVICE, NUMBER_OF_ATTACK_SAMPLES)
+
         # global model history
         global_model_lst = []
         global_model_loss_lst = []
@@ -429,8 +449,8 @@ class Organizer():
             random_user_id = random.sample([i for i in range(0, NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY)], math.ceil(C * (NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY)))
 
             for i in random_user_id:
-                # idx = (NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1) means choose attacker to participate in training
-                if i == NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1:
+                # idx > (NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1) means choose attacker to participate in training
+                if i > NUMBER_OF_PARTICIPANTS - 1:
                     continue
                 # generate delay
                 delay_r = max(0, j - random.randint(0, T_DELAY))
@@ -438,7 +458,7 @@ class Organizer():
                 participants[i].collect_parameters(global_model_lst[delay_r])
                 # The participants calculate local gradients and share to the aggregator
                 grad = participants[i].share_gradient()
-                # TODO: Attack steal the gradient
+                # NOTE: Attack steal the gradient
                 steal_grad_lst.append(grad) 
                 # The participants calculate local train loss and train accuracy
                 train_loss, train_acc = participants[i].train_loss, participants[i].train_acc
@@ -455,13 +475,19 @@ class Organizer():
                                                                                                              test_acc,
                                                                                                              train_loss,
                                                                                                              train_acc))
-            if NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1 in random_user_id:
-                attack_times += 1
+            Number_selected_malicious_client = 0
+            for i in range(0, NUMBER_OF_ADVERSARY):
+                if NUMBER_OF_PARTICIPANTS + i in random_user_id:
+                    attack_times += 1
+                    Number_selected_malicious_client += 1
+            
+            if Number_selected_malicious_client != 0:
                 attacker_delay_r = max(0, j - random.randint(0, T_DELAY))
                 # attacker collects parameter and starts to infer
                 attacker.collect_parameters(global_model_lst[attacker_delay_r])
             # attacker evaluate the attack result including true member, false member, true non member, false non member
             true_member, false_member, true_non_member, false_non_member = attacker.evaluate_attack_result()
+        
             logger.info(
                 "true_member {}, false_member {}, true_non_member {}, false_non_member {}".format(true_member,
                                                                                                   false_member,
@@ -479,32 +505,33 @@ class Organizer():
                         true_member + true_non_member + false_member + false_non_member + 1)
                 attack_recall = (true_member + 1) / (true_member + false_non_member + 1)
 
-            if NUMBER_OF_PARTICIPANTS + NUMBER_OF_ADVERSARY - 1 in random_user_id:
-                # print(f'Attack: {ATTACK}')
+            if Number_selected_malicious_client != 0:
                 # attacker attack
                 # attcker train the model within the defined training epoch
                 if j < self.TRAIN_EPOCH:
-                # if not start_attack_flag:
                     attacker.train()
                 # attacker attack the model within the defined attack epoch
                 else:
                     ATTACK_ROUND.append(j)
                     if ATTACK == 'angle':
                         print('angle attack')
-                        attacker.blackbox_attack_angle(cover_factor=1.0, grad_honest=steal_grad_lst, try_times=TRY_TIMES, logger=logger) #TODO  添加logger   
+                        attacker.blackbox_attack_angle(num_malicious=Number_selected_malicious_client, 
+                                                        cover_factor=1.0, grad_honest=steal_grad_lst, 
+                                                        logger=logger)   
                     elif ATTACK == 'unit':
                         print('unitnorm attack')
-                        # COVER_FACTOR = 1.0
-                        attacker.blackbox_attack_unit(cover_factor=1.0, grad_honest=steal_grad_lst, logger=logger)
+                        attacker.blackbox_attack_unit(num_malicious=Number_selected_malicious_client, 
+                                                        cover_factor=1.0, grad_honest=steal_grad_lst, 
+                                                        logger=logger)
                     elif ATTACK == 'norm':
                         print('norm attack')
-                        attacker.blackbox_attack_origin_norm(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, logger=logger)
-                    elif ATTACK == 'cos':
-                        print('cos attack')
-                        attacker.blackbox_attack_cos(cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst)
+                        attacker.blackbox_attack_origin_norm(num_malicious=Number_selected_malicious_client,
+                                                            cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, 
+                                                            logger=logger)
                     else:
                         print('Origin attack')
-                        attacker.blackbox_attack_origin(cover_factor=COVER_FACTOR)
+                        attacker.blackbox_attack_origin(num_malicious=Number_selected_malicious_client, 
+                                                        cover_factor=COVER_FACTOR)
 
             # record the aggregator accepted participant's gradient
             if DEFAULT_AGR is FANG:
@@ -564,7 +591,7 @@ class Organizer():
         logger.info(
             "Best result: \nattack_acc={}\ntarget_model_train_acc={}\ntarget_model_test_acc={}\nmember_pred_acc={}\nnon-member_pred_acc={}\nbest_attack_acc_epoch={}\nattacker_participate_times={}\nstart_attack_epoch={}\n" 
                 .format(best_attack_acc, target_model_train_acc, target_model_test_acc, member_pred_acc, \
-                        non_member_pred_acc, best_attack_acc_epoch, attack_times, start_attack_epoch))
+                        non_member_pred_acc, best_attack_acc_epoch, attack_times//NUMBER_OF_ADVERSARY, start_attack_epoch))
 
         logger.info(f'attack round={ATTACK_ROUND}')
         # record the model
