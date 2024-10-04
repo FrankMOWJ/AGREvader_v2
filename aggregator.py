@@ -109,6 +109,8 @@ class RobustMechanism:
             self.function = self.Foolsgold
         elif robust_mechanism == ANGLE_MEDIAN:
             self.function = self.angle_median
+        elif robust_mechanism == ANGLE_TRIM:
+            self.function = self.angle_trim
 
         self.agr_model = None
         self.history_gradients = []  # To store historical gradients for each client
@@ -163,6 +165,35 @@ class RobustMechanism:
 
         # 返回该梯度
         return input_gradients[min_angle_idx]
+    
+    def angle_trim(self, input_gradients: torch.Tensor, trim_bound=ANGLE_TRIM_BOUND):
+        
+        num_gradients = input_gradients.size(0) 
+        angles = torch.zeros(num_gradients, num_gradients)
+
+        # 计算每一对梯度之间的角度
+        for i in range(num_gradients):
+            for j in range(i + 1, num_gradients):
+                g1 = input_gradients[i]
+                g2 = input_gradients[j]
+
+                cos_theta = F.cosine_similarity(g1, g2, dim=0).item()
+                # 计算角度
+                cos_theta_clamped = max(-1.0, min(1.0, cos_theta))
+                theta = torch.acos(torch.tensor(cos_theta_clamped))
+                angles[i, j] = theta
+                angles[j, i] = theta  # 对称矩阵
+                
+        # 计算每个梯度的平均角度
+        mean_angles = angles.mean(dim=1)
+        
+        # 找到平均角度最小的1+2*trim_bound个梯度索引
+        sorted_indices = torch.argsort(mean_angles)
+        selected_indices = sorted_indices[:1 + 2 * trim_bound]
+        
+        # 返回这些梯度的平均值
+        return input_gradients[selected_indices].mean(0)
+    
     
     def trimmed_mean(self, input_gradients: torch.Tensor, malicious_user: int, trim_bound=TRIM_BOUND):
         """
@@ -487,5 +518,7 @@ class RobustMechanism:
             return self.function(gradients, malicious_user, NUM_CLUSTER)
         elif self.function == self.RFLBAT:
             return self.function(gradients, malicious_user, NUM_COMPONENTS)
+        elif self.function == self.angle_trim:
+            return self.function(gradients, ANGLE_TRIM_BOUND)
         else:
             raise ValueError("The robust mechanism is not implemented yet.")

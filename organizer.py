@@ -33,7 +33,7 @@ def get_parser(**parser_kwargs):
         "--defense",
         help="normal users defense type",
         required=True,
-        choices=['Fang', 'Median', 'Trim', 'Krum', 'Multi-Krum', 'Deepsight', 'Rflbat', 'Flame', 'Foolsgold', 'None', 'Angle-Median'],
+        choices=['Fang', 'Median', 'Trim', 'Krum', 'Multi-Krum', 'Deepsight', 'Rflbat', 'Flame', 'Foolsgold', 'None', 'Angle-Median', 'Angle-Trim'],
     )
     
     parser.add_argument(

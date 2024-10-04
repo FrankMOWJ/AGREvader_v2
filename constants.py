@@ -65,7 +65,7 @@ SUN397 = 'SUN397'
 SUN397_PATH = '~/.torch/'
 
 STL10 = 'STL10'
-STL10_PATH = '~/.torch/'
+STL10_PATH = './datasets-master/STL10'
 
 DATASET = CIFAR10
 # Attack method
@@ -95,6 +95,9 @@ FLAME = "Flame"
 FOOLSGOLD = "Foolsgold"
 
 ANGLE_MEDIAN = 'Angle-Median'
+
+ANGLE_TRIM = 'Angle-Trim'
+ANGLE_TRIM_BOUND = 2
 
 # Federated learning parameters
 NUMBER_OF_PARTICIPANTS = 9 #Number of participants
