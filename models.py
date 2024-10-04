@@ -201,7 +201,7 @@ class TargetModel:
         elif model == SUN397:
             self.model = ResNet20(output_shape=397)
         elif model == STL10:
-            self.model = ResNet20(pooling_size=16)
+            self.model = ResNet20(input_shape=(3, 96, 96), pooling_size=16, output_shape=10)
         elif model == PCAM:
             self.model = ResNet20(input_shape=(3, 96, 96), pooling_size=16, output_shape=2)
         elif model == OxfordIIITPet:

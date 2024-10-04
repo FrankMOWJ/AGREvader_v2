@@ -275,11 +275,16 @@ class DataReader:
         
         elif data_set == STL10:
             self.num_class = 10
+            # transform = transforms.Compose([
+            #     transforms.Resize((96, 96)),   # Resize images to 48x48
+            #     transforms.ToTensor(),         # Convert image to PyTorch tensor
+            #     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # 归一化
+            # ])
             transform = transforms.Compose([
-                transforms.Resize((96, 96)),   # Resize images to 48x48
-                transforms.ToTensor(),         # Convert image to PyTorch tensor
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # 归一化
+                transforms.ToTensor(),
+                transforms.Normalize((0.5,), (0.5,))
             ])
+            
             # Load the dataset from train and test directories
             train_dataset = datasets.STL10(root=STL10_PATH, split='train', download=True, transform=transform)
             test_dataset = datasets.STL10(root=STL10_PATH, split='test', download=True, transform=transform)
@@ -331,7 +336,7 @@ class DataReader:
             .format(overall_size, batch_size, self.test_set.size(0), self.train_set.size(0)))
             
         if data_distribution == 'non-iid':
-            self.train_set = self.make_noniid_dataset(self.num_class, num_users=self.NUMBER_OF_PARTICIPANTS, batch_size=BATCH_SIZE, bias=0.5)
+            self.train_set = self.make_noniid_dataset(self.num_class, num_users=self.NUMBER_OF_PARTICIPANTS, batch_size=BATCH_SIZE)
             
     def make_noniid_dataset(self, num_class, num_users=1, batch_size=64, bias=0.5):
         bias_weight = bias
@@ -413,9 +418,14 @@ class DataReader:
             self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
             self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
         
+        # elif self.data_set == STL10:
+        #     # train: 5000, test: 8000
+        #     test_count = 8 * round(self.batch_indices.size(0) / 13.0) 
+        #     self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
+        #     self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
+            
         elif self.data_set == STL10:
-            # train: 5000, test: 8000
-            test_count = 8 * round(self.batch_indices.size(0) / 13.0) 
+            test_count = round(self.batch_indices.size(0) / 2.5) 
             self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
             self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
 
