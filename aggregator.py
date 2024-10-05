@@ -189,7 +189,7 @@ class RobustMechanism:
         
         # 去除最后2*trim_bound个角度最大的梯度
         sorted_indices = torch.argsort(mean_angles)
-        assert len(num_gradients) >= 2 * trim_bound
+        assert num_gradients >= 2 * trim_bound
         selected_indices = sorted_indices[:- 2 * trim_bound]
         
         
