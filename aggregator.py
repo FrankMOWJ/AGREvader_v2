@@ -187,9 +187,11 @@ class RobustMechanism:
         # 计算每个梯度的平均角度
         mean_angles = angles.mean(dim=1)
         
-        # 找到平均角度最小的1+2*trim_bound个梯度索引
+        # 去除最后2*trim_bound个角度最大的梯度
         sorted_indices = torch.argsort(mean_angles)
-        selected_indices = sorted_indices[:1 + 2 * trim_bound]
+        assert len(num_gradients) >= 2 * trim_bound
+        selected_indices = sorted_indices[:- 2 * trim_bound]
+        
         
         # 返回这些梯度的平均值
         return input_gradients[selected_indices].mean(0)
