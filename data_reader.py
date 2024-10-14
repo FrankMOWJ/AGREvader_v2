@@ -7,7 +7,7 @@ class DataReader:
     """
     The class to read data set from the given file
     """
-    def __init__(self, data_set=CIFAR10, data_distribution='iid', number_clients=9, label_column=LABEL_COL, batch_size=BATCH_SIZE,
+    def __init__(self, data_set=CIFAR10, data_distribution='iid', number_clients=9, label_column=LABEL_COL, batch_size=BATCH_SIZE, noniid_bias=0.5,
                 reserved=0, device='cuda:0'):
         """
         Load the data from the given data path
@@ -20,6 +20,7 @@ class DataReader:
         self.data_set = data_set
         self.num_class = None
         self.NUMBER_OF_PARTICIPANTS = number_clients
+        self.noniid_bias = noniid_bias
         if data_set == LOCATION30:
             path = LOCATION30_PATH
             data_frame = pd.read_csv(path, header=None)
@@ -336,7 +337,7 @@ class DataReader:
             .format(overall_size, batch_size, self.test_set.size(0), self.train_set.size(0)))
             
         if data_distribution == 'non-iid':
-            self.train_set = self.make_noniid_dataset(self.num_class, num_users=self.NUMBER_OF_PARTICIPANTS, batch_size=BATCH_SIZE)
+            self.train_set = self.make_noniid_dataset(self.num_class, num_users=self.NUMBER_OF_PARTICIPANTS, batch_size=BATCH_SIZE, bias=self.noniid_bias)
             
     def make_noniid_dataset(self, num_class, num_users=1, batch_size=64, bias=0.5):
         bias_weight = bias

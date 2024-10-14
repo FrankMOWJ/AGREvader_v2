@@ -124,6 +124,13 @@ def get_parser(**parser_kwargs):
         default='./log/',
         type=str
     )
+    
+    parser.add_argument(
+        "--bias",
+        help="noniid bias",
+        default=0.5,
+        type=float
+    )
 
     args = parser.parse_args()
     return args
@@ -174,7 +181,7 @@ class Organizer():
         self.set_random_seed()
         self.reader = DataReader(data_set=self.args.dataset, number_clients=self.args.Number_client - self.args.Number_malicious, 
                                 data_distribution=self.DATA_DISTRIBUTION, reserved=self.args.number_attack_samples,
-                                device=self.DEVICE)
+                                device=self.DEVICE, noniid_bias=self.args.bias)
         self.target = TargetModel(self.reader, participant_index=0, device=self.DEVICE, model=self.args.dataset)
         print(f'target model: {self.target.model}')
     
