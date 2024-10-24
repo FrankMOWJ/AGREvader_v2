@@ -2,6 +2,7 @@ import numpy as np
 from constants import *
 from sklearn.cluster import KMeans
 import torch.nn.functional as F
+import hdbscan
 
 
 class Aggregator:
@@ -425,40 +426,99 @@ class RobustMechanism:
         
         return average_gradient
     
-    def FLAME(self, input_gradients: torch.Tensor, malicious_user: int):
+    def cos_sim_nd(self, p: torch.Tensor, q: torch.Tensor) -> float:
+        '''
+        计算两个梯度向量之间的余弦相似度。
+        :param p: 第一个梯度向量。
+        :param q: 第二个梯度向量。
+        :return: 余弦相似度。
+        '''
+        return 1 - (torch.dot(p, q) / (p.norm() * q.norm())).item()
+    
+    def FLAME(self, input_gradients: torch.Tensor, malicious_user: int, noise_std=0.001) -> torch.Tensor:
         '''
         The FLAME mechanism
         :param input_gradients: The gradients collected from participants
         :param malicious_user: The number of malicious participants
         :return: The average of the gradients after removing the malicious participants
         '''
-        
-        # Step 1: Calculate the mean and standard deviation of the gradients
-        mean_gradient = torch.mean(input_gradients, dim=0)
-        std_gradient = torch.std(input_gradients, dim=0)
-        
-        # Avoid division by zero by adding a small value to the standard deviation
-        std_gradient[std_gradient == 0] += 1e-8
-        
-        # Step 2: Calculate z-scores for each participant's gradients
-        z_scores = torch.abs((input_gradients - mean_gradient) / std_gradient)
-        
-        # Step 3: Identify and remove the gradients of malicious users
-        # Here we assume that the malicious users have high z-scores
-        # Ensure that threshold is calculated safely
-        threshold = torch.topk(z_scores, min(malicious_user, input_gradients.size(0)), dim=0).values[-1]
-        mask = torch.all(z_scores <= threshold, dim=1)
-        
-        # Handle case where all users are considered malicious
-        if mask.sum() == 0:
-            # Consider returning the mean of the input gradients in case of full filtering
-            return mean_gradient
-        
-        filtered_gradients = input_gradients[mask]
-        
-        # Step 4: Return the average of the filtered gradients
-        return torch.mean(filtered_gradients, dim=0)
+        num_worker = input_gradients.shape[0]
 
+        # 计算所有客户端更新的余弦相似度矩阵
+        cos_sims = np.zeros((num_worker, num_worker))
+        for i in range(num_worker):
+            for j in range(num_worker):
+                cos_sims[i, j] = self.cos_sim_nd(input_gradients[i], input_gradients[j])
+
+        # 使用 HDBSCAN 聚类来过滤恶意客户端
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=int(num_worker / 2) + 1,
+            min_samples=1,
+            metric='euclidean',  # 使用欧氏距离作为度量标准
+            allow_single_cluster=True
+        )
+        clusterer.fit(cos_sims)  # 聚类
+        labels = clusterer.labels_  # 获取每个客户端的标签
+
+        # 找到最大聚类并过滤可信客户端
+        max_label = max(set(labels), key=list(labels).count)
+        filtered_indices = [i for i, label in enumerate(labels) if label == max_label]
+
+        # 计算每个梯度的L2范数，并计算中位数
+        norms = torch.stack([input_gradients[i].norm() for i in filtered_indices])
+        median_norm = norms.median()
+
+        # 对可信客户端的梯度进行裁剪
+        clipped_gradients = [
+            input_gradients[i] * min(1, median_norm / input_gradients[i].norm())
+            for i in filtered_indices
+        ]
+        aggregated_gradient = torch.mean(torch.stack(clipped_gradients), dim=0)
+
+        # 添加高斯噪声
+        noise = torch.normal(0, noise_std * median_norm, size=aggregated_gradient.shape).to(aggregated_gradient.device)
+        aggregated_gradient += noise
+
+        return aggregated_gradient
+    
+    # 
+    # #! 有问题
+    # def FLAME(self, input_gradients: torch.Tensor, malicious_user: int):
+    #     '''
+    #     The FLAME mechanism
+    #     :param input_gradients: The gradients collected from participants
+    #     :param malicious_user: The number of malicious participants
+    #     :return: The average of the gradients after removing the malicious participants
+    #     '''
+    #     
+    #     # Step 1: Calculate the mean and standard deviation of the gradients
+    #     mean_gradient = torch.mean(input_gradients, dim=0)
+    #     std_gradient = torch.std(input_gradients, dim=0)
+    #     
+    #     # Avoid division by zero by adding a small value to the standard deviation
+    #     std_gradient[std_gradient == 0] += 1e-8
+    #     
+    #     # Step 2: Calculate z-scores for each participant's gradients
+    #     z_scores = torch.abs((input_gradients - mean_gradient) / std_gradient)
+    #     
+    #     # Step 3: Identify and remove the gradients of malicious users
+    #     # Here we assume that the malicious users have high z-scores
+    #     # Ensure that threshold is calculated safely
+    #     threshold = torch.topk(z_scores, min(malicious_user, input_gradients.size(0)), dim=0).values[-1]
+    #     mask = torch.all(z_scores <= threshold, dim=1)
+    #     
+    #     # Handle case where all users are considered malicious
+    #     if mask.sum() == 0:
+    #         # Consider returning the mean of the input gradients in case of full filtering
+    #         return mean_gradient
+    #     
+    #     filtered_gradients = input_gradients[mask]
+    #     
+    #     # Step 4: Return the average of the filtered gradients
+    #     return torch.mean(filtered_gradients, dim=0)
+    # 
+    
+    #! 有问题
     def Foolsgold(self, input_gradients: torch.Tensor, malicious_user: int):
         '''
         The Foolsgold mechanism
