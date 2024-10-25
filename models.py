@@ -1043,6 +1043,22 @@ class BlackBoxMalicious(FederatedModel):
             return cur_max_agrEvader_grad
         '''
         
+    def blackbox_attack_ascent(self):
+        """
+        do gradient ascent on the victim samples
+        """
+        cache = self.get_flatten_parameters()
+        out = self.model(self.batch_x)
+        loss = self.loss_function(out, self.batch_y)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        gradient = self.get_flatten_parameters() - cache
+        # add minus to the gradient 
+        self.aggregator.collect(-gradient)
+        return gradient
+        
+        
     def get_angle(self, gradA, gradB):
         if isinstance(gradA, torch.Tensor) and isinstance(gradB, torch.Tensor):
             # 将 gradA 和 gradB 展平为 1D 向量
