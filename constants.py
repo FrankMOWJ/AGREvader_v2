@@ -67,6 +67,9 @@ SUN397_PATH = '~/.torch/'
 STL10 = 'STL10'
 STL10_PATH = './datasets-master/STL10'
 
+FER2013 = 'FER2013'
+FER2013_PATH = './datasets-master/fer2013'
+
 DATASET = CIFAR10
 # Attack method
 ATTACK = 'None'

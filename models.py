@@ -202,12 +202,6 @@ class TargetModel:
             self.model = ResNet20(output_shape=397)
         elif model == STL10:
             self.model = ResNet20(input_shape=(3, 96, 96), pooling_size=16, output_shape=10)
-        elif model == PCAM:
-            self.model = ResNet20(input_shape=(3, 96, 96), pooling_size=16, output_shape=2)
-        elif model == OxfordIIITPet:
-            self.model = ResNet20(input_shape=(3, 96, 96), pooling_size=16, output_shape=37)
-        elif model == FOOD101:
-            self.model = ResNet20(input_shape=(3, 96, 96), pooling_size=16, output_shape=101)
         elif model == FER2013:
             self.model = ResNet20(input_shape=(3, 48, 48), pooling_size=8, output_shape=7)
         else:
@@ -1367,6 +1361,132 @@ class BlackBoxMalicious(FederatedModel):
             self.aggregator.collect(cur_max_agrEvader_grad, indices)
             return cur_max_agrEvader_grad
         '''
+    
+    def blackbox_attack_angle_new(self,num_malicious=1, cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None, logger=None):
+        """
+        Optimized shuffle label attack
+        :param cover_factor: Cover factor of the gradient of cover samples
+        :param batch_size: The size of the batch
+        :return: The malicious gradient covered by gradient of cover samples for current round
+        """
+        # 获取max_honest_diff
+        max_honest_diff = 0.0
+        for i in range(len(grad_honest)):
+            for j in range(i+1, len(grad_honest)):
+                theta_degrees = self.get_angle(grad_honest[i], grad_honest[j])
+                max_honest_diff = max(max_honest_diff, theta_degrees)
+                
+        cache = self.get_flatten_parameters()
+        opt_cache = deepcopy(self.optimizer.state_dict())
+        
+        out = self.model(self.batch_x)
+        loss = self.loss_function(out, self.shuffled_y)  # compute loss with shuffled labels
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
+        vic_gradient = self.get_flatten_parameters() - cache
+        
+        self.load_parameters(cache)
+        self.optimizer.load_state_dict(opt_cache) 
+
+        # 获得cover梯度
+        candidate_cover_samples = self.data_reader.reserve_set # candidate cover set (len: 530)
+        cur_max_agrEvader_grad = None
+        
+        single_cover_gradient = []
+        for sample in candidate_cover_samples:
+            x, y = self.data_reader.get_batch(sample)
+            x = x.unsqueeze(0)
+            y = y.unsqueeze(0)
+            out = self.model(x)
+            loss = self.loss_function(out, y)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            
+            single_cover_gradient.append(self.get_flatten_parameters() - cache)
+            # single_cover_gradient.append( torch.cat([param.grad.flatten() for param in self.model.parameters() if param.grad is not None]) )
+
+            # self.model.load_state_dict(state_cache)  # 恢复模型状态
+            self.load_parameters(cache)
+            self.optimizer.load_state_dict(opt_cache)
+            
+        single_cover_gradient = torch.stack(single_cover_gradient)
+        
+
+        assert len(single_cover_gradient)==len(candidate_cover_samples)        
+        
+        # 每一轮挑选一个最好的梯度
+        actual_selected_index = []
+        selected_grad_index = []
+        selected_grad = []
+        best_agr_grad = torch.zeros(0).to(self.DEVICE)
+        
+        gradient = None
+        indices = None
+
+        min_cover_honest_diff = 360.0
+        for cover_grad in single_cover_gradient:
+            max_cover_honest_diff = 0.0
+            for honest_grad in grad_honest:
+                max_cover_honest_diff = max(max_cover_honest_diff, self.get_angle(cover_grad + vic_gradient, honest_grad))
+            min_cover_honest_diff = min(min_cover_honest_diff, max_cover_honest_diff)
+
+        cnt = 0
+        while len(selected_grad_index) < 30 and cnt < 50:
+            cur_max_agrEvader_grad = torch.zeros(0).to(self.DEVICE)
+            index = None
+            gradient = None
+            g_cov = None
+            
+            history_max_diff = 0.0
+            for i, g in enumerate(single_cover_gradient):
+                if i in selected_grad_index:
+                    continue
+                # 组合cover和poison
+                if len(selected_grad_index) == 0:
+                    g_cov = g
+                    gradient = g_cov * cover_factor + vic_gradient
+                else:
+                    selected_grad_temp = torch.stack(selected_grad)
+                    g_cov = ((torch.sum(selected_grad_temp, dim=0) + g)/(len(selected_grad)+1))
+                    gradient = g_cov * cover_factor + vic_gradient
+                
+                max_diff = 0.0
+                # 计算 maliciuous gradient 跟 honest gradiets的最大夹角
+                for k in range(len(grad_honest)):
+                    theta = self.get_angle(gradient, grad_honest[k])
+                    max_diff = max(theta, max_diff)
+                # 找到当前样本中能够满足约束同时能够使得角度差最大的样本
+                if max_diff <= max_honest_diff and max_diff > history_max_diff:
+                    cur_max_agrEvader_grad = gradient
+                    index = i
+                    history_max_diff = max_diff
+                    
+            if index is not None:
+                selected_grad_index.append(index)
+                selected_grad.append(single_cover_gradient[index])
+                best_agr_grad = cur_max_agrEvader_grad
+            
+            cnt += 1
+
+        logger.info(f'max_cover_honest_diff: {min_cover_honest_diff}, max_honest_diff: {max_honest_diff}')
+        logger.info(f'selected grad index: {selected_grad_index}')
+            
+        if best_agr_grad.numel() == 0:
+            self.aggregator.collect(vic_gradient, indices, num_malicious)
+            print('return vic gradient')
+            return vic_gradient
+        else:
+            # optimize cover_factor
+            # optimal_cover_factor = self.optimize_cover_factor(vic_gradient, best_g_cov, max_honest_diff, grad_honest)
+            # logger.info(f'cover factor is optimized from 0.5 to {optimal_cover_factor}')
+            # best_agr_grad = optimal_cover_factor * best_g_cov + vic_gradient
+            self.aggregator.collect(best_agr_grad, indices, num_malicious)
+            print('return agr gradient')
+            return best_agr_grad
+        
         
     def blackbox_attack_cos(self,num_malicious=1, cover_factor = 0,batch_size = BATCH_SIZE, grad_honest = None): 
         """
