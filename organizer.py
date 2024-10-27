@@ -515,7 +515,7 @@ class Organizer():
                     ATTACK_ROUND.append(j)
                     if ATTACK == 'angle':
                         print('angle attack')
-                        attacker.blackbox_attack_angle(num_malicious=Number_selected_malicious_client, 
+                        attacker.blackbox_attack_angle_new(num_malicious=Number_selected_malicious_client, 
                                                         cover_factor=1.0, grad_honest=steal_grad_lst, 
                                                         logger=logger)   
                     elif ATTACK == 'unit':
