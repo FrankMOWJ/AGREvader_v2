@@ -82,7 +82,7 @@ TRIM_BOUND = 1 #Trim bound
 KRUM = "Krum" #Robust AGR -Krum
 
 MULTI_KRUM = "Multi-Krum" #Robust AGR -Multi-Krum
-MULTI_KRUM_K = 3 #Number of Krum
+MULTI_KRUM_K = 4 #Number of Krum
 
 DEEPSIGHT = "Deepsight" #Robust AGR -DeepSight
 NUM_CLUSTER = 2
@@ -98,6 +98,10 @@ ANGLE_MEDIAN = 'Angle-Median'
 
 ANGLE_TRIM = 'Angle-Trim'
 ANGLE_TRIM_BOUND = 2
+
+TOPK = "Topk"
+
+DIFFERENTIAL_PRIVACY = "Differential-Privacy"
 
 # Federated learning parameters
 NUMBER_OF_PARTICIPANTS = 9 #Number of participants

@@ -63,6 +63,10 @@ class Aggregator:
         if by_indices:
             result = sum(self.collected_gradients) / self.counter_by_indices
         else:
+            # print(f"*******************{NUMBER_OF_ADVERSARY}*******************")
+            # if self.robust.type == MULTI_KRUM:
+            #     result = self.robust.getter(self.collected_gradients, malicious_user=0)
+            # else:
             result = self.robust.getter(self.collected_gradients, malicious_user=NUMBER_OF_ADVERSARY)
         if reset:
             self.reset()
@@ -112,6 +116,10 @@ class RobustMechanism:
             self.function = self.angle_median
         elif robust_mechanism == ANGLE_TRIM:
             self.function = self.angle_trim
+        elif robust_mechanism == TOPK:
+            self.function = self.topk
+        elif robust_mechanism == DIFFERENTIAL_PRIVACY:
+            self.function = self.differential_privacy
 
         self.agr_model = None
         self.history_gradients = []  # To store historical gradients for each client
@@ -124,6 +132,44 @@ class RobustMechanism:
         :param model: The model used for LRR and ERR verification
         """
         self.agr_model = model
+
+    def differential_privacy(self, input_gradients: torch.Tensor):
+        """
+        The differential privacy mechanism
+        :param input_gradients: The gradients collected from participants
+        :return: The average of the gradients with differential privacy
+        """
+        # add gaussian noise
+        noise = torch.normal(mean=0, std=0.001, size=input_gradients[0].size()).to(input_gradients[0].device)
+        
+        for g in input_gradients:
+            print(g)
+            print(g + noise)
+            print("******")
+        print("***************")
+            
+        return torch.mean(input_gradients + noise, 0)
+
+    def topk(self, input_gradients: torch.Tensor):
+        """
+        The top-k mechanism
+        :param input_gradients: The gradients collected from participants
+        :return: The average of the gradients after removing the top-k dimensions
+        """
+        # for each input gradient, select the top-k dimensions with the largest absolute values
+        k = 2
+        top_k = len(input_gradients[0]) // k
+        top_k_indices = torch.topk(torch.abs(input_gradients), top_k, dim=1).indices
+        
+        # 创建一个与 input_gradients 形状相同的全零张量
+        filtered_gradients = torch.zeros_like(input_gradients).to(input_gradients[0].device)
+
+        # 在新张量中保留 top-k 维度的值，其余维度保持为 0
+        for i in range(input_gradients.size(0)):
+            filtered_gradients[i][top_k_indices[i]] = input_gradients[i][top_k_indices[i]]
+
+        return torch.mean(filtered_gradients, 0)
+                              
 
     def naive_average(self, input_gradients: torch.Tensor):
         """
@@ -242,47 +288,47 @@ class RobustMechanism:
         
         return selected_gradient
     
-    def multi_krum(self, input_gradients: torch.Tensor, malicious_user: int, num_select=2):
-        '''
-        The Multi-Krum mechanism
+    def multi_krum(self, input_gradients: torch.Tensor, malicious_user: int, num_select=MULTI_KRUM_K):
+        """
+        The multi-krum method 
         :param input_gradients: The gradients collected from participants
         :param malicious_user: The number of malicious participants
-        :param num_select: The number of gradients to be selected
         :return: The average of the gradients after removing the malicious participants
-        '''       
-        num_participants = input_gradients.shape[0]
-        num_to_select = num_participants - malicious_user - 2
+        """
+        # multi_k =  (self.type == MULTI_KRUM)
+        candidates = []
+        candidate_indices = []
+        remaining_updates = input_gradients
+        all_indices = np.arange(len(input_gradients))
 
-        # Check if num_to_select is valid
-        if num_to_select <= 0:
-            raise ValueError("The number of malicious users is too high, making selection impossible.")
+        while len(remaining_updates) > 2 * malicious_user + 2:
+            distances = []
+            for update in remaining_updates:
+                distance = []
+                for update_ in remaining_updates:
+                    distance.append(torch.norm((update - update_)) ** 2)
+                distance = torch.Tensor(distance).float()
+                distances = distance[None, :] if not len(distances) else torch.cat((distances, distance[None, :]), 0)
 
-        # Step 1: Calculate the distances between each pair of gradients
-        distances = torch.zeros((num_participants, num_participants))
-        for i in range(num_participants):
-            for j in range(i + 1, num_participants):
-                distances[i, j] = torch.norm(input_gradients[i] - input_gradients[j])
-                distances[j, i] = distances[i, j]
+            distances = torch.sort(distances, dim=1)[0]
+            scores = torch.sum(distances[:, :len(remaining_updates) - 2 - malicious_user], dim=1)
+            indices = torch.argsort(scores)[:len(remaining_updates) - 2 - malicious_user]
 
-        # Step 2: For each gradient, calculate the sum of distances to the closest num_to_select gradients
-        scores = []
-        for i in range(num_participants):
-            sorted_distances, _ = torch.sort(distances[i])
-            score = torch.sum(sorted_distances[:num_to_select])
-            scores.append(score)
+            candidate_indices.append(all_indices[indices[0]])
+            all_indices = np.delete(all_indices, indices[0])
+            candidates = remaining_updates[indices[0]][None, :] if not len(candidates) else torch.cat(
+                (candidates, remaining_updates[indices[0]][None, :]), 0)
+            remaining_updates = torch.cat((remaining_updates[:indices[0]], remaining_updates[indices[0] + 1:]), 0)
+            # if not multi_k:
+            #     break
+            # Check if the number of selected gradients reaches the required limit
+            if len(candidates) >= num_select:
+                break
 
-        # Step 3: Select the num_select gradients with the smallest scores
-        selected_indices = torch.argsort(torch.tensor(scores))[:num_select]
-        selected_gradients = input_gradients[selected_indices]
 
-        # Step 4: Return the average of the selected gradients
-        global_gradient = torch.mean(selected_gradients, dim=0)
-        
-        # print("********************************")
-        # print("Selected indices: ", selected_indices)
-        # print("********************************")
-        
-        return global_gradient
+        print("Selected candicates = {}".format(np.array(candidate_indices)))
+        # RobustMechanism.appearence_list = candidate_indices
+        return torch.mean(candidates, dim=0)
     
     def Fang_defense(self, input_gradients: torch.Tensor, malicious_user: int):
         """
@@ -481,43 +527,6 @@ class RobustMechanism:
 
         return aggregated_gradient
     
-    # 
-    # #! 有问题
-    # def FLAME(self, input_gradients: torch.Tensor, malicious_user: int):
-    #     '''
-    #     The FLAME mechanism
-    #     :param input_gradients: The gradients collected from participants
-    #     :param malicious_user: The number of malicious participants
-    #     :return: The average of the gradients after removing the malicious participants
-    #     '''
-    #     
-    #     # Step 1: Calculate the mean and standard deviation of the gradients
-    #     mean_gradient = torch.mean(input_gradients, dim=0)
-    #     std_gradient = torch.std(input_gradients, dim=0)
-    #     
-    #     # Avoid division by zero by adding a small value to the standard deviation
-    #     std_gradient[std_gradient == 0] += 1e-8
-    #     
-    #     # Step 2: Calculate z-scores for each participant's gradients
-    #     z_scores = torch.abs((input_gradients - mean_gradient) / std_gradient)
-    #     
-    #     # Step 3: Identify and remove the gradients of malicious users
-    #     # Here we assume that the malicious users have high z-scores
-    #     # Ensure that threshold is calculated safely
-    #     threshold = torch.topk(z_scores, min(malicious_user, input_gradients.size(0)), dim=0).values[-1]
-    #     mask = torch.all(z_scores <= threshold, dim=1)
-    #     
-    #     # Handle case where all users are considered malicious
-    #     if mask.sum() == 0:
-    #         # Consider returning the mean of the input gradients in case of full filtering
-    #         return mean_gradient
-    #     
-    #     filtered_gradients = input_gradients[mask]
-    #     
-    #     # Step 4: Return the average of the filtered gradients
-    #     return torch.mean(filtered_gradients, dim=0)
-    # 
-    
     #! 有问题
     def Foolsgold(self, input_gradients: torch.Tensor, malicious_user: int):
         '''
@@ -558,7 +567,6 @@ class RobustMechanism:
 
         return weighted_avg_gradient    
         
-        
     def getter(self, gradients, malicious_user=NUMBER_OF_ADVERSARY):
         """
         The getter method applying the robust AGR
@@ -567,7 +575,8 @@ class RobustMechanism:
         :return: The average of the gradients after adding the malicious gradient
         """
         gradients = torch.vstack(gradients)
-        if self.function == self.naive_average or self.function == self.median or self.function == self.angle_median:
+        if self.function == self.naive_average or self.function == self.median or self.function == self.angle_median \
+            or self.function == self.differential_privacy or self.function == self.topk:
             return self.function(gradients)
         elif self.function == self.krum or self.function == self.FLAME \
             or self.function == self.Foolsgold or self.function == self.Fang_defense:
