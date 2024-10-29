@@ -24,7 +24,7 @@ def get_parser(**parser_kwargs):
         "-a",
         "--attack",
         help="attacker attack type",
-        choices=['norm', 'unit', 'angle', 'cos', 'origin'],
+        choices=['norm', 'unit', 'angle', 'cos', 'origin', 'gradient_ascent'],
         default='angle'
     )
 
@@ -89,13 +89,6 @@ def get_parser(**parser_kwargs):
         choices=['iid', 'non-iid'],
         default='iid',
         type=str
-    )
-    
-    parser.add_argument(
-        "--cover_times",
-        help="Number of times to try cover set",
-        default=5,
-        type=int
     )
     
     parser.add_argument(
@@ -381,7 +374,6 @@ class Organizer():
         C = self.args.C 
         T_DELAY = self.args.delay
         DATASET = self.args.dataset
-        TRY_TIMES = self.args.cover_times
         EXPERIMENTAL_DATA_DIRECTORY = self.args.output_dir
         NUMBER_OF_ADVERSARY = self.args.Number_malicious
         NUMBER_OF_PARTICIPANTS = self.args.Number_client - NUMBER_OF_ADVERSARY
@@ -523,7 +515,7 @@ class Organizer():
                     ATTACK_ROUND.append(j)
                     if ATTACK == 'angle':
                         print('angle attack')
-                        attacker.blackbox_attack_angle(num_malicious=Number_selected_malicious_client, 
+                        attacker.blackbox_attack_angle_new(num_malicious=Number_selected_malicious_client, 
                                                         cover_factor=1.0, grad_honest=steal_grad_lst, 
                                                         logger=logger)   
                     elif ATTACK == 'unit':
@@ -536,6 +528,10 @@ class Organizer():
                         attacker.blackbox_attack_origin_norm(num_malicious=Number_selected_malicious_client,
                                                             cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, 
                                                             logger=logger)
+                    elif ATTACK == 'gradient_ascent':
+                        print('gradient ascent')
+                        attacker.blackbox_attack_ascent()
+                        
                     else:
                         print('Origin attack')
                         attacker.blackbox_attack_origin(num_malicious=Number_selected_malicious_client, 

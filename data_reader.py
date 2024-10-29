@@ -303,6 +303,34 @@ class DataReader:
             self.data = torch.stack(overall_data)
             self.labels = torch.tensor(overall_label)
 
+        elif data_set == FER2013:
+            self.num_class = 7
+            # 定义简单的数据变换
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.5,), (0.5,))
+            ])
+            
+            # 使用pytorch folder加载数据集
+            import os
+            test_dataset = datasets.ImageFolder(root=os.path.join(FER2013_PATH, 'test'),transform=transform)
+            train_dataset = datasets.ImageFolder(root=os.path.join(FER2013_PATH, 'train'), transform=transform)
+            
+            # 合并数据
+            overall_data = []
+            overall_label = []
+
+            # 把test放在前面
+            for i in range(len(test_dataset)):
+                overall_data.append(test_dataset[i][0])
+                overall_label.append(test_dataset[i][1])
+            for i in range(len(train_dataset)):
+                overall_data.append(train_dataset[i][0])
+                overall_label.append(train_dataset[i][1])
+            
+            self.data = torch.stack(overall_data)
+            self.labels = torch.tensor(overall_label)
+            
         else:
             raise ValueError(f'no dataset {data_set}')
 
@@ -430,7 +458,11 @@ class DataReader:
             self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
             self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
 
-
+        elif self.data_set == FER2013:
+            # train: 28,709, test: 3,589 
+            test_count = round(self.batch_indices.size(0) / 9.0) 
+            self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
+            self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
     
     def get_train_set(self, participant_index=0):
         """
