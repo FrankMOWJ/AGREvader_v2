@@ -59,6 +59,22 @@ class DataReader:
             
             self.num_class = 10
 
+        elif data_set == COVID19:
+            # Load the COVID-19 dataset
+            self.num_class = 4
+            self.data = np.load(COVID19_PATH + '/xdata.npy')
+            self.labels = np.load(COVID19_PATH + '/ydata.npy')
+            self.labels = np.squeeze(self.labels)
+            self.data = torch.Tensor(self.data)
+            self.data = torch.einsum('bxyz->bzxy', self.data).contiguous()
+            print(self.data.shape)
+            
+            self.labels = torch.tensor(self.labels, dtype=torch.int64)
+            # 将图像resize到128x128
+            self.data = torch.nn.functional.interpolate(self.data, size=(128, 128), mode='bilinear')
+            
+            
+                    
         elif data_set == CIFAR100:
             # Define the transformation for the CIFAR-100 data
             transform = transforms.Compose([
@@ -444,6 +460,11 @@ class DataReader:
         
         elif self.data_set == SUN397:
             test_count = round(self.batch_indices.size(0) / 5.0) 
+            self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
+            self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
+            
+        elif self.data_set == COVID19:
+            test_count = round(self.batch_indices.size(0) / 4.0) 
             self.test_set = self.batch_indices[:test_count].to(self.DEVICE)
             self.train_set = self.batch_indices[test_count:].to(self.DEVICE)
         

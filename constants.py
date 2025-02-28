@@ -30,6 +30,8 @@ LABEL_COL = 0 #Label column
 LABEL_SIZE = 30 #Number of classes
 DEFAULT_SET = LOCATION30 #Default dataset
 
+COVID19 = "covid19"
+COVID19_PATH = "./datasets-master/covid19"
 
 CIFAR10 = "CIFAR10" 
 CIFAR10_PATH = "~/.torch/"

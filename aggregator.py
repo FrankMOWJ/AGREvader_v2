@@ -3,7 +3,7 @@ from constants import *
 from sklearn.cluster import KMeans
 import torch.nn.functional as F
 import hdbscan
-
+import time
 
 class Aggregator:
     """
@@ -67,7 +67,17 @@ class Aggregator:
             # if self.robust.type == MULTI_KRUM:
             #     result = self.robust.getter(self.collected_gradients, malicious_user=0)
             # else:
+
+            # 记录时间
+            start_time = time.time()
             result = self.robust.getter(self.collected_gradients, malicious_user=NUMBER_OF_ADVERSARY)
+            end_time = time.time()
+            print(f'defense time:{end_time - start_time}********************')
+            # 写入文件
+            with open(f"defense_time.txt", "a") as f:
+                f.write(f'{end_time - start_time}\n')
+      
+        
         if reset:
             self.reset()
         return result
@@ -142,11 +152,11 @@ class RobustMechanism:
         # add gaussian noise
         noise = torch.normal(mean=0, std=0.001, size=input_gradients[0].size()).to(input_gradients[0].device)
         
-        for g in input_gradients:
-            print(g)
-            print(g + noise)
-            print("******")
-        print("***************")
+        # for g in input_gradients:
+        #     print(g)
+        #     print(g + noise)
+        #     print("******")
+        # print("***************")
             
         return torch.mean(input_gradients + noise, 0)
 
@@ -474,10 +484,10 @@ class RobustMechanism:
     
     def cos_sim_nd(self, p: torch.Tensor, q: torch.Tensor) -> float:
         '''
-        计算两个梯度向量之间的余弦相似度。
-        :param p: 第一个梯度向量。
-        :param q: 第二个梯度向量。
-        :return: 余弦相似度。
+        Calculate the cosine similarity between two gradient vectors.
+        :param p: The first gradient vector.
+        :param q: The second gradient vector.
+        :return: The cosine similarity.
         '''
         return 1 - (torch.dot(p, q) / (p.norm() * q.norm())).item()
     

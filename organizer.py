@@ -6,6 +6,56 @@ import os, random
 from data_reader import DataReader
 import argparse
 import math
+import time
+
+def calculate_roc_metrics(confidences, labels):
+    """
+    Calculate ROC curve metrics from confidence scores and labels
+    Args:
+        confidences: array of confidence scores
+        labels: array of ground truth labels (1/0)
+    Returns:
+        fpr: list of false positive rates
+        tpr: list of true positive rates
+        thresholds: list of thresholds used
+    """
+    # 按置信度降序排序
+    sorted_indices = np.argsort(confidences)[::-1]
+    sorted_confidences = confidences[sorted_indices]
+    sorted_labels = labels[sorted_indices]
+    
+    # 初始化统计量
+    tpr = []
+    fpr = []
+    thresholds = []
+    
+    # 累积TP/FP统计
+    total_p = np.sum(sorted_labels == 1)
+    total_n = np.sum(sorted_labels == 0)
+    
+    fp = 0
+    tp = 0
+    
+    prev_confidence = None
+    for i in range(len(sorted_confidences)):
+        if sorted_confidences[i] != prev_confidence:
+            # 保存当前阈值的结果
+            tpr.append(tp / total_p if total_p > 0 else 0)
+            fpr.append(fp / total_n if total_n > 0 else 0)
+            thresholds.append(sorted_confidences[i])
+            prev_confidence = sorted_confidences[i]
+        
+        if sorted_labels[i] == 1:
+            tp += 1
+        else:
+            fp += 1
+    
+    # 添加最后一个点
+    tpr.append(tp / total_p if total_p > 0 else 0)
+    fpr.append(fp / total_n if total_n > 0 else 0)
+    thresholds.append(0.0)
+    
+    return fpr, tpr, thresholds
 
 def get_parser(**parser_kwargs):
     def str2bool(v):
@@ -24,7 +74,7 @@ def get_parser(**parser_kwargs):
         "-a",
         "--attack",
         help="attacker attack type",
-        choices=['norm', 'unit', 'angle', 'cos', 'origin', 'gradient_ascent'],
+        choices=['norm', 'unit', 'angle', 'cos', 'origin', 'gradient_ascent', 'adaptive'],
         default='angle'
     )
 
@@ -293,7 +343,6 @@ class Organizer():
             # attacker perform attack after the training epoch
             else:
                 attacker.greybox_attack(cover_factor=COVER_FACTOR, ascent_factor=ASCENT_FACTOR, mislead_factor=MISLEAD_FACTOR)
-
             # record the aggregator accepted participant's gradient
             if DEFAULT_AGR == FANG:
                 logger.info("Selected inputs are from participants number{}".format(aggregator.robust.appearence_list))
@@ -380,6 +429,10 @@ class Organizer():
         NUMBER_OF_ATTACK_SAMPLES = self.args.number_attack_samples
         RESERVED_SAMPLE = NUMBER_OF_ATTACK_SAMPLES
         ATTACK_ROUND = []
+
+        attack_time_list = []
+        labels_list = []
+        confidences_list = []
 
         # Initialize data frame for recording purpose
         acc_recorder = pd.DataFrame(columns=["epoch", "participant", "test_loss", "test_accuracy", "train_accuracy"])
@@ -486,13 +539,15 @@ class Organizer():
                 # attacker collects parameter and starts to infer
                 attacker.collect_parameters(global_model_lst[attacker_delay_r])
             # attacker evaluate the attack result including true member, false member, true non member, false non member
-            true_member, false_member, true_non_member, false_non_member = attacker.evaluate_attack_result()
-        
+            true_member, false_member, true_non_member, false_non_member, labels, confidences = attacker.evaluate_attack_result()
             logger.info(
                 "true_member {}, false_member {}, true_non_member {}, false_non_member {}".format(true_member,
                                                                                                   false_member,
                                                                                                   true_non_member,
                                                                                                   false_non_member))
+            labels_list.append(labels)
+            confidences_list.append(confidences)
+            
             # attacker calculate the attack precision, accuracy, recall
             if true_member and false_member and true_non_member and false_non_member != 0:
                 attack_precision = true_member / (true_member + false_member)
@@ -509,22 +564,30 @@ class Organizer():
                 # attacker attack
                 # attcker train the model within the defined training epoch
                 if j < self.TRAIN_EPOCH:
+                    passive_start_time = time.time()
                     attacker.train()
+                    passive_end_time = time.time()
+                    logger.info(f'passive_time = {passive_end_time-passive_start_time}')
                 # attacker attack the model within the defined attack epoch
                 else:
                     ATTACK_ROUND.append(j)
+                    # 记录attack的时间
+                    attack_start_time = time.time()
                     if ATTACK == 'angle':
                         print('angle attack')
-                        attacker.blackbox_attack_angle_new(num_malicious=Number_selected_malicious_client, 
+                        # attacker.blackbox_attack_angle_new(num_malicious=Number_selected_malicious_client, 
+                        attacker.blackbox_attack_angle(num_malicious=Number_selected_malicious_client, 
                                                         cover_factor=1.0, grad_honest=steal_grad_lst, 
                                                         logger=logger)   
                     elif ATTACK == 'unit':
-                        print('unitnorm attack')
-                        attacker.blackbox_attack_unit(num_malicious=Number_selected_malicious_client, 
+                        print('angle_random attack')
+                        # print('unitnorm attack')
+                        attacker.blackbox_attack_angle_random(num_malicious=Number_selected_malicious_client, 
                                                         cover_factor=1.0, grad_honest=steal_grad_lst, 
                                                         logger=logger)
                     elif ATTACK == 'norm':
                         print('norm attack')
+                        # attacker.blackbox_attack_norm(num_malicious=Number_selected_malicious_client,
                         attacker.blackbox_attack_origin_norm(num_malicious=Number_selected_malicious_client,
                                                             cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, 
                                                             logger=logger)
@@ -532,11 +595,22 @@ class Organizer():
                         print('gradient ascent')
                         attacker.blackbox_attack_ascent()
                         
+                    elif ATTACK == 'adaptive':
+                        print('adaptive attack')
+                        attacker.blackbox_attack_adaptive(num_malicious=Number_selected_malicious_client, 
+                                                        cover_factor=COVER_FACTOR, grad_honest=steal_grad_lst, 
+                                                        logger=logger)
+                    
+                        
                     else:
                         print('Origin attack')
                         attacker.blackbox_attack_origin(num_malicious=Number_selected_malicious_client, 
                                                         cover_factor=COVER_FACTOR)
-
+                    attack_end_time = time.time()
+                    attack_time_list.append(attack_end_time - attack_start_time)
+                    logger.info(f'Epoch {j} attack time: {attack_end_time - attack_start_time}')
+                    logger.info(f'Average attack time: {sum(attack_time_list) / len(attack_time_list)}')
+                    
             # record the aggregator accepted participant's gradient
             if DEFAULT_AGR is FANG:
                 logger.info("Selected inputs are from participants number{}".format(aggregator.robust.appearence_list))
@@ -616,3 +690,35 @@ class Organizer():
                                 + "User" + str(NUMBER_OF_PARTICIPANTS+NUMBER_OF_ADVERSARY) + "C" + str(C) + "Delay" + str(T_DELAY) \
                                 + str(self.DATA_DISTRIBUTION) + "TrainEpoch" + str(self.TRAIN_EPOCH) + "AttackEpoch" + str(
                                 self.MAX_EPOCH - self.TRAIN_EPOCH)+ recorder_suffix + "optimized_attacker" + TIME_STAMP + ".csv")
+            
+        # 绘制best attack的roc曲线
+        labels = labels_list[best_attack_index]
+        confidences = confidences_list[best_attack_index]
+        
+        fpr, tpr, thresholds = calculate_roc_metrics(confidences, labels)
+        
+        import matplotlib.pyplot as plt
+        plt.figure()
+        plt.plot(fpr, tpr, label='FedPoisonMIA')
+        # plt.xlim([0, 0.05])  # 放大低FPR区域
+        plt.xlabel('False Positive Rate')   
+        plt.ylabel('True Positive Rate')
+        plt.title('ROC Curve')
+        plt.legend()
+        # plt.show()
+        
+        
+        # 计算TPR@0.1%FPR
+        target_fpr = 0.001
+        # 找到第一个FPR >= target_fpr的索引
+        idx = np.where(np.array(fpr) >= target_fpr)[0][0]
+        tpr_at_low_fpr = tpr[idx]
+        print(f"TPR@0.1%FPR: {tpr_at_low_fpr:.4f}")
+        
+        # 将target_fpr对应的tpr画在图上
+        plt.scatter(target_fpr, tpr_at_low_fpr, c='r', marker='o')
+        plt.text(target_fpr, tpr_at_low_fpr, f'({target_fpr:.4f}, {tpr_at_low_fpr:.4f})', ha='right')
+        plt.savefig(f'./roc_{self.args.defense}_{self.args.attack}.png')
+        
+        
+        
